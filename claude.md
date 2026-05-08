@@ -39,17 +39,19 @@ Sistema automatizado de monitoreo en tiempo real de la flota de buses del Transp
 
 ### Datos Raw (datos_recientes.parquet)
 ```
-timestamp          datetime64[ns]  # Momento de captura
-patente           string           # Identificador del bus
-operador          int64            # ID del operador
-servicio          string           # Código del servicio (ej: 210, C16)
-sentido           string           # Dirección de la ruta
-latitud           float64          # Coordenada GPS
-longitud          float64          # Coordenada GPS
-velocidad_actual  float64          # km/h en última transmisión
-velocidad_max_ventana float64      # km/h máxima en ventana
-estado            string           # en_movimiento | en_parada | detenido
-edad_datos_min    float64          # Minutos desde última transmisión GPS
+timestamp              datetime64[ns]  # Momento de captura
+patente               string           # Identificador del bus
+operador              int64            # ID del operador
+servicio              string           # Código del servicio (ej: 210, C16)
+sentido               string           # Dirección de la ruta
+latitud               float64          # Coordenada GPS
+longitud              float64          # Coordenada GPS
+velocidad_actual      float64          # km/h en última transmisión
+velocidad_max         float64          # km/h máxima en las 4 transmisiones
+velocidad_min         float64          # km/h mínima en las 4 transmisiones
+velocidad_promedio    float64          # km/h promedio en las 4 transmisiones
+estado                string           # en_movimiento | en_parada | detenido
+edad_datos_min        float64          # Minutos desde última transmisión GPS
 ```
 
 ### Métricas Agregadas (metricas_historicas.parquet)

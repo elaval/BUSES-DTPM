@@ -84,13 +84,16 @@ def parsear_posiciones(data):
             
             # Determinar estado operacional
             max_velocidad = max(velocidades)
+            min_velocidad = min(velocidades)
+            promedio_velocidad = sum(velocidades) / len(velocidades)
+
             if max_velocidad > 5:
                 estado = 'en_movimiento'
             elif max_velocidad > 0:
                 estado = 'en_parada'
             else:
                 estado = 'detenido'
-            
+
             registro = {
                 'timestamp': fecha_consulta,
                 'patente': campos[1],
@@ -100,7 +103,9 @@ def parsear_posiciones(data):
                 'latitud': float(campos[2]),
                 'longitud': float(campos[3]),
                 'velocidad_actual': velocidades[0],
-                'velocidad_max_ventana': max_velocidad,
+                'velocidad_max': max_velocidad,
+                'velocidad_min': min_velocidad,
+                'velocidad_promedio': round(promedio_velocidad, 1),
                 'estado': estado,
                 'edad_datos_min': edad_min
             }
