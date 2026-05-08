@@ -9,6 +9,7 @@ import plotly.express as px
 import plotly.graph_objects as go
 from datetime import datetime, timedelta
 from pathlib import Path
+import json
 
 # Configuración de página
 st.set_page_config(
@@ -22,25 +23,15 @@ st.set_page_config(
 DATA_DIR = Path('data')
 ARCHIVO_HISTORICO = DATA_DIR / 'metricas_historicas.parquet'
 ARCHIVO_RECIENTES = DATA_DIR / 'datos_recientes.parquet'
+OPERADORES_FILE = DATA_DIR / 'operadores.json'
 
-# Mapeo de operadores (puedes completar con nombres reales)
-OPERADORES = {
-    2: "Express",
-    4: "Subus Chile",
-    5: "Metbus",
-    16: "Redbus Urbano",
-    32: "STP Santiago",
-    33: "Buses Vule",
-    34: "Alsacia",
-    35: "Unitran",
-    36: "Mall Martínez",
-    37: "Gran Santiago",
-    38: "Buses Gran Santiago",
-    39: "Turbus",
-    40: "Inversiones Alsacia",
-    41: "Comercial Nuevo Milenio",
-    42: "Express de Santiago Uno"
-}
+# Cargar mapeo de operadores desde JSON
+if OPERADORES_FILE.exists():
+    with open(OPERADORES_FILE, 'r', encoding='utf-8') as f:
+        OPERADORES = {int(k): v for k, v in json.load(f).items()}
+else:
+    # Fallback a mapeo básico si no existe el archivo
+    OPERADORES = {}
 
 @st.cache_data(ttl=60)
 def cargar_metricas_historicas():
