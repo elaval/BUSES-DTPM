@@ -108,7 +108,7 @@ def main():
     operador_seleccionado = st.sidebar.multiselect(
         "Operadores",
         options=operadores_nombres,
-        default=operadores_nombres[:5]
+        default=operadores_nombres  # Todos los operadores por defecto
     )
 
     # Extraer IDs de operadores seleccionados

@@ -11,10 +11,13 @@ import pyarrow.parquet as pq
 from datetime import datetime, timedelta
 import os
 from pathlib import Path
-from dotenv import load_dotenv
 
-# Cargar variables de entorno desde .env
-load_dotenv()
+# Cargar variables de entorno desde .env (solo en ambiente local)
+try:
+    from dotenv import load_dotenv
+    load_dotenv()
+except ImportError:
+    pass  # python-dotenv no está instalado (ej: GitHub Actions)
 
 # Configuración
 USUARIO = os.getenv('DTPM_USUARIO')
