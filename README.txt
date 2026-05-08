@@ -25,7 +25,7 @@ Métricas agregadas históricas:
 - `pct_en_movimiento`: Porcentaje de buses activos
 
 ### `data/datos_recientes.parquet`
-Datos raw de últimas 2 horas (para análisis de ventana móvil)
+Datos raw de últimos 7 días (para análisis temporal y geoespacial detallado)
 
 ## Configuración
 
