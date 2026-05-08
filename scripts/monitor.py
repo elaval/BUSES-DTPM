@@ -32,7 +32,7 @@ ARCHIVO_RECIENTES = DATA_DIR / 'datos_recientes.parquet'
 
 # Constantes
 VENTANA_HORAS = 1  # Ventana móvil de análisis
-RETENER_HORAS = 2  # Retener datos raw solo últimas 2 horas
+RETENER_HORAS = 168  # Retener datos raw últimos 7 días (168 horas)
 
 
 def capturar_datos_api():
@@ -159,7 +159,7 @@ def calcular_metricas(df):
 
 def guardar_datos_recientes(df_nuevo):
     """
-    Guarda datos recientes con garbage collection (solo últimas 2 horas)
+    Guarda datos recientes con garbage collection (últimos 7 días)
     """
     # Leer datos existentes si existen
     if ARCHIVO_RECIENTES.exists():
@@ -167,15 +167,18 @@ def guardar_datos_recientes(df_nuevo):
         df_combined = pd.concat([df_existente, df_nuevo], ignore_index=True)
     else:
         df_combined = df_nuevo
-    
-    # Garbage collection: eliminar datos > 2 horas
+
+    # Garbage collection: eliminar datos > 7 días
+    # Usar el timestamp más reciente como referencia en lugar de datetime.now()
+    # para evitar problemas con zonas horarias
     if not df_combined.empty:
-        limite_tiempo = datetime.now() - timedelta(hours=RETENER_HORAS)
+        timestamp_referencia = df_combined['timestamp'].max()
+        limite_tiempo = timestamp_referencia - timedelta(hours=RETENER_HORAS)
         df_combined = df_combined[df_combined['timestamp'] >= limite_tiempo]
-    
+
     # Guardar
     df_combined.to_parquet(ARCHIVO_RECIENTES, index=False)
-    
+
     return len(df_combined)
 
 
@@ -207,13 +210,17 @@ def analizar_ventana_movil():
     """
     if not ARCHIVO_RECIENTES.exists():
         return None
-    
+
     df = pd.read_parquet(ARCHIVO_RECIENTES)
-    
-    # Filtrar última hora
-    limite_tiempo = datetime.now() - timedelta(hours=VENTANA_HORAS)
+
+    if df.empty:
+        return None
+
+    # Filtrar última hora usando el timestamp más reciente como referencia
+    timestamp_referencia = df['timestamp'].max()
+    limite_tiempo = timestamp_referencia - timedelta(hours=VENTANA_HORAS)
     df_ventana = df[df['timestamp'] >= limite_tiempo]
-    
+
     if df_ventana.empty:
         return None
     
@@ -267,8 +274,9 @@ def generar_reporte():
     print("💾 Guardando datos...")
     n_recientes = guardar_datos_recientes(df_buses)
     n_historico = guardar_metricas_historicas(metricas)
-    
-    print(f"   - Datos recientes: {n_recientes} registros (últimas {RETENER_HORAS}h)")
+
+    dias_retencion = RETENER_HORAS / 24
+    print(f"   - Datos recientes: {n_recientes} registros (últimos {dias_retencion:.0f} días)")
     print(f"   - Histórico métricas: {n_historico} registros totales")
     
     # Análisis ventana móvil
