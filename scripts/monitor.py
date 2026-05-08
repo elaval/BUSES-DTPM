@@ -275,9 +275,25 @@ def generar_reporte():
     n_recientes = guardar_datos_recientes(df_buses)
     n_historico = guardar_metricas_historicas(metricas)
 
-    dias_retencion = RETENER_HORAS / 24
-    print(f"   - Datos recientes: {n_recientes} registros (últimos {dias_retencion:.0f} días)")
-    print(f"   - Histórico métricas: {n_historico} registros totales")
+    # Leer datos recientes para calcular rango temporal real
+    df_recientes_guardados = pd.read_parquet(ARCHIVO_RECIENTES)
+    if not df_recientes_guardados.empty:
+        rango_temporal = df_recientes_guardados['timestamp'].max() - df_recientes_guardados['timestamp'].min()
+        horas_reales = rango_temporal.total_seconds() / 3600
+        dias_reales = horas_reales / 24
+        dias_config = RETENER_HORAS / 24
+
+        if dias_reales < 1:
+            tiempo_str = f"{horas_reales:.1f}h de {dias_config:.0f} días"
+        else:
+            tiempo_str = f"{dias_reales:.1f} de {dias_config:.0f} días"
+
+        print(f"   - Datos recientes: {n_recientes:,} registros ({tiempo_str})")
+    else:
+        dias_config = RETENER_HORAS / 24
+        print(f"   - Datos recientes: {n_recientes:,} registros (ventana: {dias_config:.0f} días)")
+
+    print(f"   - Histórico métricas: {n_historico:,} registros totales")
     
     # Análisis ventana móvil
     print(f"\n🔍 Análisis ventana móvil (última {VENTANA_HORAS}h):")
