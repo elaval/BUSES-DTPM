@@ -156,12 +156,17 @@ def calcular_metricas(df):
         return pd.DataFrame()
     
     timestamp = df['timestamp'].iloc[0]
+
+    # Categorías excluyentes: "sin señal reciente" = GPS de 10 a 190 min y NO en
+    # movimiento (los pocos buses con GPS algo antiguo pero velocidad > 5 km/h
+    # se cuentan solo como en movimiento).
+    df = df.assign(sin_senal=(~df['senal_reciente'].astype(bool)) & (df['estado'] != 'en_movimiento'))
     
     # Métricas por operador
     metricas_operador = df.groupby('operador').agg(
         total_buses=('patente', 'count'),
         buses_en_movimiento=('estado', lambda x: (x == 'en_movimiento').sum()),
-        buses_sin_senal=('senal_reciente', lambda x: int((~x.astype(bool)).sum())),
+        buses_sin_senal=('sin_senal', 'sum'),
     ).reset_index()
     metricas_operador['buses_detenidos'] = (
         metricas_operador['total_buses'] - metricas_operador['buses_en_movimiento']
@@ -174,7 +179,7 @@ def calcular_metricas(df):
     metricas_servicio = df.groupby(['operador', 'servicio']).agg(
         total_buses=('patente', 'count'),
         buses_en_movimiento=('estado', lambda x: (x == 'en_movimiento').sum()),
-        buses_sin_senal=('senal_reciente', lambda x: int((~x.astype(bool)).sum())),
+        buses_sin_senal=('sin_senal', 'sum'),
     ).reset_index()
     metricas_servicio['buses_detenidos'] = (
         metricas_servicio['total_buses'] - metricas_servicio['buses_en_movimiento']

@@ -36,6 +36,9 @@ footer{color:var(--muted);font-size:12px;margin-top:24px}
 .combo li[aria-selected="true"],.combo li:hover{background:var(--bg)}
 .combo li span{color:var(--ink2)}
 #linsel{font:inherit;font-size:13px;padding:6px 8px;border-radius:8px;border:1px solid var(--border);background:var(--surface);color:var(--ink);max-width:340px}
+.defs summary{cursor:pointer;list-style:revert}
+.deftab td{vertical-align:top;font-size:13px} .deftab td:first-child{white-space:nowrap}
+.deftab .sw{vertical-align:-1px}
 figure{margin:0}
 </style>
 </head>
@@ -45,6 +48,20 @@ figure{margin:0}
 <p class="sub" id="sub">Cargando datos…</p>
 
 <div class="kpis" id="kpis"></div>
+
+<details class="card defs" open>
+<summary><h2 style="display:inline">Cómo se clasifica cada bus</h2></summary>
+<p class="note" style="margin-top:8px">En cada captura (cada 10 minutos) la API del DTPM entrega, por bus, sus últimas 4 transmisiones de GPS con posición y velocidad. Con eso cada bus se clasifica así:</p>
+<table class="deftab">
+<tr><th>Categoría</th><th>Criterio</th><th>Qué suele significar</th></tr>
+<tr><td><i class="sw" style="background:var(--s1)"></i> <b>En movimiento</b></td><td>Velocidad máxima de las 4 transmisiones <b>mayor a 5 km/h</b>.</td><td>Bus circulando.</td></tr>
+<tr><td><i class="sw" style="background:var(--s3)"></i> <b>Detenido</b></td><td>Velocidad máxima de <b>5 km/h o menos</b>, con GPS de hace 10 minutos o menos. Incluye dos subcasos: <i>en paradero</i> (algo de movimiento, entre 0 y 5 km/h) y <i>detenido</i> propiamente tal (0 km/h en las 4 transmisiones).</td><td>Bus en un paradero, en un semáforo, en un taco o esperando en un terminal con el GPS encendido.</td></tr>
+<tr><td><i class="sw" style="background:var(--s2)"></i> <b>Sin señal reciente</b></td><td>Última transmisión de GPS de hace <b>más de 10 y hasta 190 minutos</b>, y no está en movimiento.</td><td>Bus que terminó su servicio y apagó el equipo, guardado en un terminal, o con una falla de GPS o de comunicación.</td></tr>
+<tr><td><b>Excluido</b></td><td>Última transmisión de hace <b>más de 190 minutos</b>.</td><td>Bus fuera de operación ese día (la API también lista buses sin transmitir hace días). No se cuenta en ningún total.</td></tr>
+</table>
+<p class="note" style="margin-top:10px"><b>Buses con GPS</b> = en movimiento + detenido + sin señal reciente. Las tres categorías son excluyentes: el 2–3 % de buses con GPS algo antiguo pero velocidad mayor a 5 km/h se cuenta solo como en movimiento (criterio vigente desde el 15-nov-2026; en las capturas de esa madrugada pueden aparecer en ambas). El umbral de 190 minutos reproduce el filtro que el sistema aplicaba antes del 15-nov-2026, para que los totales sigan siendo comparables con el histórico; los datos anteriores a esa fecha no distinguen "sin señal reciente" (esos buses se contaban como detenidos).<br>
+<b>Velocidad</b> (mapa y análisis por línea): promedio de las 4 transmisiones, solo de buses <i>en movimiento</i> con GPS al día; incluye el tiempo que el bus pasa frenando y partiendo en paraderos, así que es menor que la velocidad del tráfico. <b>Punta</b> = 7–9 h y 18–20 h; <b>valle</b> = 11–16 h; solo días hábiles. <b>Buses en servicio</b> (análisis por línea) = en movimiento o detenido, con GPS al día.</p>
+</details>
 
 <div class="card">
 <h2>Últimos 7 días</h2>
@@ -121,7 +138,7 @@ const C={s1:css('--s1'),s2:css('--s2'),s3:css('--s3'),ctx:css('--ctx'),grid:css(
 const parse=d3.timeParse('%Y-%m-%dT%H:%M'); const act=parse(V.actualizado);
 document.getElementById('sub').textContent=`Transporte público metropolitano · última captura: ${es.format('%e de %B, %H:%M')(act)} (hora de Chile)`;
 const tot=d3.sum(V.ahora,d=>d.total), mov=d3.sum(V.ahora,d=>d.mov), sin=V.ahora.some(d=>d.sin!=null)?d3.sum(V.ahora,d=>d.sin||0):null;
-const k=[['Buses con GPS',fmt(tot),'última captura'],['En movimiento',fmt(mov),`${Math.round(mov/tot*100)} % del total`],['Sin señal reciente',sin==null?'—':fmt(sin),'GPS de 10 a 190 min'],['Operadores',V.ahora.length,'unidades de negocio'],['Capturas 7 días',fmt(V.capturas_7d),'en la rama data']];
+const k=[['Buses con GPS',fmt(tot),'GPS de hace 190 min o menos'],['En movimiento',fmt(mov),`${Math.round(mov/tot*100)} % · más de 5 km/h`],['Sin señal reciente',sin==null?'—':fmt(sin),'último GPS hace 10–190 min'],['Operadores',V.ahora.length,'unidades de negocio'],['Capturas 7 días',fmt(V.capturas_7d),'en la rama data']];
 document.getElementById('kpis').innerHTML=k.map(([l,v,d])=>`<div class="kpi"><div class="l">${l}</div><div class="v">${v}</div><div class="d">${d}</div></div>`).join('');
 // serie
 const ser=V.serie.map(([t,a,b,c])=>({t:parse(t),total:a,mov:b,sin:c}));
