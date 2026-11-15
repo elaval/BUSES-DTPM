@@ -54,7 +54,7 @@ figure{margin:0}
 
 <div class="kpis" id="kpis"></div>
 
-<details class="card defs" open>
+<details class="card defs">
 <summary><h2 style="display:inline">Cómo se clasifica cada bus</h2></summary>
 <p class="note" style="margin-top:8px">En cada captura (cada 10 minutos) la API del DTPM entrega, por bus, sus últimas 4 transmisiones de GPS con posición y velocidad. Con eso cada bus se clasifica así:</p>
 <table class="deftab">
@@ -64,14 +64,14 @@ figure{margin:0}
 <tr><td><i class="sw" style="background:var(--s2)"></i> <b>Sin señal reciente</b></td><td>Última transmisión de GPS de hace <b>más de 10 y hasta 190 minutos</b>, y no está en movimiento.</td><td>Bus que terminó su servicio y apagó el equipo, guardado en un terminal, o con una falla de GPS o de comunicación.</td></tr>
 <tr><td><b>Excluido</b></td><td>Última transmisión de hace <b>más de 190 minutos</b>.</td><td>Bus fuera de operación ese día (la API también lista buses sin transmitir hace días). No se cuenta en ningún total.</td></tr>
 </table>
-<p class="note" style="margin-top:10px"><b>Buses con GPS</b> = en movimiento + detenido + sin señal reciente. Las tres categorías son excluyentes: el 2–3 % de buses con GPS algo antiguo pero velocidad mayor a 5 km/h se cuenta solo como en movimiento (criterio vigente desde el 15-nov-2026; en las capturas de esa madrugada pueden aparecer en ambas). El umbral de 190 minutos reproduce el filtro que el sistema aplicaba antes del 15-nov-2026, para que los totales sigan siendo comparables con el histórico; los datos anteriores a esa fecha no distinguen "sin señal reciente" (esos buses se contaban como detenidos).<br>
+<p class="note" style="margin-top:10px"><b>Con GPS activo</b> = en movimiento + detenido: buses que transmitieron en los últimos 10 minutos. <b>Flota (7 días)</b> = buses distintos (patentes) que transmitieron al menos una vez en los últimos 7 días; sirve como referencia del tamaño de la flota. Las categorías son excluyentes: el 2–3 % de buses con GPS algo antiguo pero velocidad mayor a 5 km/h se cuenta solo como en movimiento. Los datos anteriores al 15-nov-2026 no distinguen "sin señal reciente" (esos buses se contaban como detenidos).<br>
 <b>Velocidad por tramo</b> (mapas y análisis por línea): cada posición GPS se ubica sobre el trazado oficial de su recorrido y se asigna al tramo entre los dos paraderos que la rodean; la velocidad del tramo es la mediana del promedio de las 4 transmisiones de los buses <i>en movimiento</i>. Es la velocidad de circulación: no incluye el tiempo detenido en paraderos (no es la velocidad comercial) y sí algo del frenado y la partida. <b>Punta</b> = 7–9 h y 18–20 h; <b>valle</b> = 11–16 h; solo días hábiles. <b>Buses en servicio</b> (análisis por línea) = en movimiento o detenido, con GPS al día.</p>
 </details>
 
 <div class="card">
 <h2>Últimos 7 días</h2>
-<p class="note">Buses detectados en cada captura de toda la ciudad. Hasta el 15 de noviembre había solo unas pocas capturas al día (puntos sueltos); desde entonces hay una cada 10 minutos (líneas continuas).</p>
-<div class="legend"><span><i class="sw" style="background:var(--ctx)"></i>Total con GPS</span><span><i class="sw" style="background:var(--s1)"></i>En movimiento</span><span><i class="sw" style="background:var(--s2)"></i>Sin señal reciente</span></div>
+<p class="note">Buses con GPS activo en cada captura: <b>en movimiento</b> más <b>detenidos con señal</b> (en paradero, semáforo, taco o esperando en un terminal con el equipo encendido). La línea punteada es la flota de referencia: buses distintos que transmitieron al menos una vez en los últimos 7 días. Los buses que dejaron de transmitir hace poco (<i>sin señal reciente</i>) no se incluyen en las áreas. Antes del 15 de noviembre solo hay unas pocas capturas al día y no distinguen detenidos: se muestran como puntos de buses en movimiento.</p>
+<div class="legend"><span><i class="sw" style="background:var(--s1)"></i>En movimiento</span><span><i class="sw" style="background:var(--s3)"></i>Detenido con señal</span><span><i class="sw" style="background:transparent;border-top:2px dashed var(--muted);height:0;width:14px;border-radius:0"></i>Flota con señal en 7 días</span></div>
 <div id="serie"></div>
 </div>
 
@@ -83,9 +83,9 @@ figure{margin:0}
 <div id="perfil"></div>
 </div>
 <div class="card">
-<h2>Flota por operador, última captura</h2>
+<h2>Flota activa por operador, última captura</h2>
 <p class="note" id="opnote"></p>
-<div class="legend"><span><i class="sw" style="background:var(--s1)"></i>En movimiento</span><span><i class="sw" style="background:var(--s3)"></i>Detenido</span><span><i class="sw" style="background:var(--s2)"></i>Sin señal reciente</span></div>
+<div class="legend"><span><i class="sw" style="background:var(--s1)"></i>En movimiento</span><span><i class="sw" style="background:var(--s3)"></i>Detenido con señal</span><span><i class="sw" style="background:var(--ctx);opacity:.45"></i>Flota (7 días)</span></div>
 <div id="ops"></div>
 </div>
 </div>
@@ -155,30 +155,43 @@ const C={surf:css('--surface'),ink2:css('--ink2'),s1:css('--s1'),s2:css('--s2'),
 const parse=d3.timeParse('%Y-%m-%dT%H:%M'); const act=parse(V.actualizado);
 document.getElementById('sub').textContent=`Transporte público metropolitano · última captura: ${es.format('%e de %B, %H:%M')(act)} (hora de Chile)`;
 const tot=d3.sum(V.ahora,d=>d.total), mov=d3.sum(V.ahora,d=>d.mov), sin=V.ahora.some(d=>d.sin!=null)?d3.sum(V.ahora,d=>d.sin||0):null;
-const k=[['Buses con GPS',fmt(tot),'GPS de hace 190 min o menos'],['En movimiento',fmt(mov),`${Math.round(mov/tot*100)} % · más de 5 km/h`],['Sin señal reciente',sin==null?'—':fmt(sin),'último GPS hace 10–190 min'],['Operadores',V.ahora.length,'unidades de negocio'],['Capturas 7 días',fmt(V.capturas_7d),'en la rama data']];
+const det=sin==null?null:Math.max(0,tot-mov-sin), op=det==null?null:mov+det;
+const k=[['Con GPS activo',op==null?'—':fmt(op),'en movimiento + detenidos con señal'],['En movimiento',fmt(mov),op?`${Math.round(mov/op*100)} % de los activos · > 5 km/h`:'> 5 km/h'],['Sin señal reciente',sin==null?'—':fmt(sin),'dejaron de transmitir hace 10–190 min'],['Flota (7 días)',V.flota_7d?fmt(V.flota_7d):'—','buses distintos con señal'],['Operadores',V.ahora.length,'unidades de negocio']];
 document.getElementById('kpis').innerHTML=k.map(([l,v,d])=>`<div class="kpi"><div class="l">${l}</div><div class="v">${v}</div><div class="d">${d}</div></div>`).join('');
 // serie
-const ser=V.serie.map(([t,a,b,c])=>({t:parse(t),total:a,mov:b,sin:c}));
-const long=ser.flatMap(d=>[{t:d.t,k:'Total con GPS',v:d.total},{t:d.t,k:'En movimiento',v:d.mov}].concat(d.sin==null?[]:[{t:d.t,k:'Sin señal reciente',v:d.sin}]));
-const seg=[];let g=0;ser.forEach((d,i)=>{if(i>0&&(d.t-ser[i-1].t)>30*60000)g++;d.g=g});
-const lin=ser.flatMap(d=>[{t:d.t,k:'Total con GPS',v:d.total,g:d.g},{t:d.t,k:'En movimiento',v:d.mov,g:d.g}].concat(d.sin==null?[]:[{t:d.t,k:'Sin señal reciente',v:d.sin,g:d.g}]));
-const cs={domain:['Total con GPS','En movimiento','Sin señal reciente'],range:[C.ctx,C.s1,C.s2]};
-document.getElementById('serie').append(Plot.plot({width:W('serie'),height:260,marginLeft:48,style:{background:'transparent',fontSize:'12px'},
- x:{type:'time',label:null,ticks:d3.timeDay.every(1),tickFormat:es.format('%a %e')},y:{grid:true,label:'buses',tickFormat:fmt},color:cs,
- marks:[Plot.lineY(lin,{x:'t',y:'v',stroke:'k',z:d=>d.k+'|'+d.g,strokeWidth:2}),Plot.dot(long,{x:'t',y:'v',fill:'k',r:2.5}),
- Plot.tip(long,Plot.pointer({x:'t',y:'v',title:d=>`${es.format('%a %e %b, %H:%M')(d.t)}\n${d.k}: ${fmt(d.v)}`}))]}));
+const ser=V.serie.map(([t,a,b,c])=>({t:parse(t),total:a,mov:b,sin:c,det:c==null?null:Math.max(0,a-b-c)}));
+let g=0;ser.forEach((d,i)=>{if(i>0&&(d.t-ser[i-1].t)>30*60000)g++;d.g=g});
+const dens=ser.filter(d=>d.det!=null), rala=ser.filter(d=>d.det==null);
+const ar=dens.flatMap(d=>[{t:d.t,g:d.g,k:'En movimiento',v:d.mov},{t:d.t,g:d.g,k:'Detenido con señal',v:d.det}]);
+const F=V.flota_7d;
+document.getElementById('serie').append(Plot.plot({width:W('serie'),height:280,marginLeft:48,marginRight:12,style:{background:'transparent',fontSize:'12px'},
+ x:{type:'time',label:null,ticks:d3.timeDay.every(1),tickFormat:es.format('%a %e')},y:{grid:true,label:'buses',tickFormat:fmt,domain:[0,F?F*1.08:undefined]},
+ color:{domain:['En movimiento','Detenido con señal'],range:[C.s1,C.s3]},
+ marks:[
+  F?Plot.ruleY([F],{stroke:C.muted,strokeDasharray:'4,3'}):null,
+  F?Plot.text([F],{x:ser.at(-1).t,y:F,text:d=>`Flota con señal en los últimos 7 días: ${fmt(d)}`,dy:-7,textAnchor:'end',fill:C.muted}):null,
+  Plot.areaY(ar,Plot.stackY({x:'t',y:'v',fill:'k',z:'k',order:['En movimiento','Detenido con señal'],fillOpacity:0.85,curve:'linear',
+   filter:null})),
+  Plot.dot(rala,{x:'t',y:'mov',fill:C.s1,r:2.8}),
+  Plot.tip(dens,Plot.pointerX({x:'t',y:d=>d.mov+d.det,title:d=>`${es.format('%a %e %b, %H:%M')(d.t)}\nOperando o con GPS activo: ${fmt(d.mov+d.det)}\n  en movimiento: ${fmt(d.mov)}\n  detenido con señal: ${fmt(d.det)}\nSin señal reciente (no incluidos): ${fmt(d.sin)}`})),
+  Plot.tip(rala,Plot.pointer({x:'t',y:'mov',title:d=>`${es.format('%a %e %b, %H:%M')(d.t)}\nEn movimiento: ${fmt(d.mov)}\n(captura antigua: sin detalle de detenidos)`}))
+ ].filter(Boolean)}));
 // perfil
 const pf=V.perfil.flatMap(d=>[{h:d.h,k:'Histórico',v:d.historico}].concat(d.semana==null?[]:[{h:d.h,k:'Últimos 7 días',v:d.semana}]));
 document.getElementById('perfil').append(Plot.plot({width:W('perfil'),height:240,marginLeft:48,style:{background:'transparent',fontSize:'12px'},
  x:{label:'hora',domain:[0,23],ticks:[0,3,6,9,12,15,18,21]},y:{grid:true,label:'buses en movimiento',tickFormat:fmt},color:{domain:['Histórico','Últimos 7 días'],range:[C.ctx,C.s1]},
  marks:[Plot.lineY(pf,{x:'h',y:'v',stroke:'k',strokeWidth:2}),Plot.dot(pf.filter(d=>d.k!=='Histórico'),{x:'h',y:'v',fill:'k',r:3}),Plot.tip(pf,Plot.pointer({x:'h',y:'v',title:d=>`${d.h}:00 · ${d.k}: ${fmt(d.v)}`}))]}));
 // operadores
-const ops=V.ahora.map(d=>({n:d.nombre.replace(/^U\d+ - /,''),mov:d.mov,sin:d.sin||0,det:Math.max(0,d.total-d.mov-(d.sin||0)),total:d.total})).sort((a,b)=>b.total-a.total);
-const ol=ops.flatMap(d=>[{n:d.n,k:'En movimiento',v:d.mov},{n:d.n,k:'Detenido',v:d.det},{n:d.n,k:'Sin señal reciente',v:d.sin}]);
-document.getElementById('opnote').textContent='Buses detectados por unidad de negocio, ordenados por tamaño.';
-document.getElementById('ops').append(Plot.plot({width:W('ops'),height:Math.max(260,ops.length*24+40),marginLeft:150,style:{background:'transparent',fontSize:'12px'},
- y:{domain:ops.map(d=>d.n),label:null},x:{grid:true,label:'buses',tickFormat:fmt},color:{domain:['En movimiento','Detenido','Sin señal reciente'],range:[C.s1,C.s3,C.s2]},
- marks:[Plot.barX(ol,Plot.stackX({y:'n',x:'v',fill:'k',inset:1,tip:{format:{fill:true,x:false,y:true}},title:d=>`${d.n}\n${d.k}: ${fmt(d.v)}`}))]}));
+const ops=V.ahora.map(d=>({n:d.nombre.replace(/^U\d+ - /,''),mov:d.mov,det:Math.max(0,d.total-d.mov-(d.sin||0)),flota:d.flota_7d||null,total:d.total})).map(d=>({...d,act:d.mov+d.det})).sort((a,b)=>(b.flota??b.act)-(a.flota??a.act));
+const ol=ops.flatMap(d=>[{n:d.n,k:'En movimiento',v:d.mov},{n:d.n,k:'Detenido con señal',v:d.det}]);
+const tieneF=ops.some(d=>d.flota);
+document.getElementById('opnote').textContent=tieneF?'Buses con GPS activo en la última captura sobre la flota de cada unidad de negocio (buses distintos con señal en los últimos 7 días). El porcentaje es la parte de la flota activa ahora.':'Buses con GPS activo en la última captura, por unidad de negocio.';
+document.getElementById('ops').append(Plot.plot({width:W('ops'),height:Math.max(260,ops.length*24+40),marginLeft:150,marginRight:44,style:{background:'transparent',fontSize:'12px'},
+ y:{domain:ops.map(d=>d.n),label:null},x:{grid:true,label:'buses',tickFormat:fmt},color:{domain:['En movimiento','Detenido con señal'],range:[C.s1,C.s3]},
+ marks:[tieneF?Plot.barX(ops,{y:'n',x:'flota',fill:C.ctx,fillOpacity:0.35,inset:1}):null,
+  Plot.barX(ol,Plot.stackX({y:'n',x:'v',fill:'k',inset:1})),
+  tieneF?Plot.text(ops,{y:'n',x:'flota',text:d=>d.flota?Math.round(d.act/d.flota*100)+' %':'',dx:4,textAnchor:'start',fill:C.ink2}):null,
+  Plot.tip(ops,Plot.pointerY({y:'n',x:d=>d.flota??d.act,title:d=>`${d.n}\nEn movimiento: ${fmt(d.mov)}\nDetenido con señal: ${fmt(d.det)}\nCon GPS activo: ${fmt(d.act)}`+(d.flota?`\nFlota 7 días: ${fmt(d.flota)} (${Math.round(d.act/d.flota*100)} % activa)`:'')}))].filter(Boolean)}));
 // mapa de tramos
 const T=S.tramos_red.map(([cs,p,v,c,calle,entre,cm,ns])=>({cs,p,v,c,calle,entre,cm,ns,mid:cs[Math.floor(cs.length/2)]}));
 document.getElementById('mapnote').textContent=`${fmt(T.length)} tramos entre paraderos consecutivos con datos suficientes · ${S.periodo}. Velocidad de circulación de los buses en movimiento en cada tramo (no incluye el tiempo detenidos en paraderos). Punta = la peor entre 7–9 h y 18–20 h; valle = 11–16 h.`;

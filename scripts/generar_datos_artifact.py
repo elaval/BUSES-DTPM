@@ -12,7 +12,7 @@ from pathlib import Path
 import pandas as pd
 
 BASE = 'https://raw.githubusercontent.com/elaval/BUSES-DTPM/'
-local_h, local_o = Path('data/metricas_historicas.parquet'), Path('data/operadores.json')
+local_h, local_o, local_r = Path('data/metricas_historicas.parquet'), Path('data/operadores.json'), Path('data/datos_recientes.parquet')
 h = pd.read_parquet(local_h if local_h.exists() else BASE + 'data/data/metricas_historicas.parquet')
 ops = json.loads(local_o.read_text(encoding='utf-8') if local_o.exists()
                  else urllib.request.urlopen(BASE + 'main/data/operadores.json').read())
@@ -40,7 +40,16 @@ rec = rec.groupby(rec.index.hour).median()
 perfil = [{'h': k, 'historico': int(hist.get(k, 0)), 'semana': (int(rec[k]) if k in rec else None)}
           for k in range(24)]
 
-out = {'actualizado': fin.strftime('%Y-%m-%dT%H:%M'), 'capturas_7d': int(len(agg)),
+# Flota de referencia: buses distintos (patentes) con señal en los últimos 7 días
+r = pd.read_parquet(local_r if local_r.exists() else BASE + 'data/data/datos_recientes.parquet', columns=['timestamp', 'patente', 'operador'])
+r7 = r[r.timestamp > r.timestamp.max() - pd.Timedelta(days=7)]
+flota_7d = int(r7.patente.nunique())
+flota_op = r7.groupby('operador').patente.nunique()   # un bus puede aparecer en 2 operadores si cambió de unidad
+
+for o_ in ahora:
+    o_['flota_7d'] = int(flota_op.get(o_['id'], 0))
+
+out = {'actualizado': fin.strftime('%Y-%m-%dT%H:%M'), 'capturas_7d': int(len(agg)), 'flota_7d': flota_7d,
        'serie': serie, 'ahora': ahora, 'perfil': perfil}
 salida = sys.argv[1] if len(sys.argv) > 1 else 'data_vivo.json'
 Path(salida).write_text(json.dumps(out, ensure_ascii=False, separators=(',', ':')), encoding='utf-8')
