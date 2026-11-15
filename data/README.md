@@ -61,7 +61,7 @@ operador × servicio** (`nivel = "servicio"`). Desde el 8 de mayo de 2026.
 | `pct_en_movimiento` | decimal | `buses_en_movimiento / total_buses × 100` |
 | `buses_sin_senal` | decimal | Buses con último GPS de hace 10 a 190 minutos y **no** en movimiento. **Vacío antes del 15-nov-2026** (la métrica no existía) |
 | `buses_operando` | decimal | Buses **operando**: GPS al día y se movieron en la captura actual o en alguna de las 2 anteriores (~20 min). Incluye a los detenidos en paradero o semáforo; excluye a los encendidos en un terminal sin salir. **Vacío antes del 15-nov-2026** |
-| `buses_operando_comercial` | decimal | Parte de `buses_operando` con servicio comercial (código de servicio que no termina en `TS`). **Vacío antes del 15-nov-2026** |
+| `buses_operando_comercial` | decimal | **Buses en servicio**: parte de `buses_operando` con servicio comercial (código de servicio que no termina en `TS`). Es la cifra principal del dashboard. **Vacío antes del 15-nov-2026** |
 
 Muestra (`nivel = "operador"`):
 

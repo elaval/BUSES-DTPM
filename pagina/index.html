@@ -56,24 +56,29 @@ figure{margin:0}
 
 <details class="card defs">
 <summary><h2 style="display:inline">Cómo se clasifica cada bus</h2></summary>
-<p class="note" style="margin-top:8px">En cada captura (cada 10 minutos) la API del DTPM entrega, por bus, sus últimas 4 transmisiones de GPS con posición y velocidad. Con eso cada bus se clasifica así:</p>
+<p class="note" style="margin-top:8px">En cada captura (cada 10 minutos) la API del DTPM entrega, por bus, sus últimas 4 transmisiones de GPS con posición y velocidad, y el código del servicio que tiene asignado. Las cifras de buses de esta página cuentan solo a los <b>buses en servicio</b>:</p>
 <table class="deftab">
-<tr><th>Categoría</th><th>Criterio</th><th>Qué suele significar</th></tr>
-<tr><td><i class="sw" style="background:var(--s1)"></i> <b>En movimiento</b></td><td>Velocidad máxima de las 4 transmisiones <b>mayor a 5 km/h</b>.</td><td>Bus circulando.</td></tr>
-<tr><td><i class="sw" style="background:var(--s3)"></i> <b>Detenido</b></td><td>Velocidad máxima de <b>5 km/h o menos</b>, con GPS de hace 10 minutos o menos. Incluye dos subcasos: <i>en paradero</i> (algo de movimiento, entre 0 y 5 km/h) y <i>detenido</i> propiamente tal (0 km/h en las 4 transmisiones).</td><td>Bus en un paradero, en un semáforo, en un taco o esperando en un terminal con el GPS encendido.</td></tr>
-<tr><td><i class="sw" style="background:var(--s2)"></i> <b>Sin señal reciente</b></td><td>Última transmisión de GPS de hace <b>más de 10 y hasta 190 minutos</b>, y no está en movimiento.</td><td>Bus que terminó su servicio y apagó el equipo, guardado en un terminal, o con una falla de GPS o de comunicación.</td></tr>
-<tr><td><b>Operando</b></td><td>GPS de hace 10 minutos o menos y, en la captura actual o en alguna de las 2 anteriores (~20 min), iba a más de 5 km/h o se desplazó más de 150 m.</td><td>Bus en servicio, aunque en ese momento esté detenido en un paradero o semáforo. No incluye buses encendidos en un terminal sin salir. Se calcula desde el 15-nov-2026.</td></tr>
-<tr><td><b>Sin servicio comercial (TS)</b></td><td>El código de servicio que informa la API termina en "TS" (uno por unidad de negocio: T5TS, T19TS…).</td><td>Bus sin recorrido asignado: traslados entre el depósito y el inicio o fin de su recorrido, o equipo encendido fuera de servicio. Los buses pasan de TS a un recorrido al empezar el servicio (sobre todo entre 5 y 7 h) y de vuelta a TS al terminarlo.</td></tr>
-<tr><td><b>Excluido</b></td><td>Última transmisión de hace <b>más de 190 minutos</b>.</td><td>Bus fuera de operación ese día (la API también lista buses sin transmitir hace días). No se cuenta en ningún total.</td></tr>
+<tr><th>Categoría</th><th>Criterio</th><th>Qué significa</th></tr>
+<tr><td><b>En servicio</b></td><td>Tiene un recorrido asignado, GPS de hace 10 minutos o menos y <b>se movió en los últimos ~20 minutos</b>: en la captura actual o en alguna de las 2 anteriores iba a más de 5 km/h o se desplazó más de 150 m.</td><td>Bus atendiendo un recorrido. Es la cifra que usan los indicadores y gráficos.</td></tr>
+<tr><td style="padding-left:18px"><i class="sw" style="background:var(--s1)"></i> En movimiento</td><td>En servicio y con velocidad máxima de las 4 transmisiones mayor a 5 km/h.</td><td>Bus circulando.</td></tr>
+<tr><td style="padding-left:18px"><i class="sw" style="background:var(--s3)"></i> Detenido en ruta</td><td>En servicio, pero en esta captura a 5 km/h o menos.</td><td>Bus en un paradero, un semáforo o un taco.</td></tr>
 </table>
-<p class="note" style="margin-top:10px"><b>Con GPS activo</b> = en movimiento + detenido: buses que transmitieron en los últimos 10 minutos. <b>Flota (7 días)</b> = buses distintos (patentes) que transmitieron al menos una vez en los últimos 7 días; sirve como referencia del tamaño de la flota. Las categorías son excluyentes: el 2–3 % de buses con GPS algo antiguo pero velocidad mayor a 5 km/h se cuenta solo como en movimiento. Los datos anteriores al 15-nov-2026 no distinguen "sin señal reciente" (esos buses se contaban como detenidos).<br>
-<b>Velocidad por tramo</b> (mapas y análisis por línea): cada posición GPS se ubica sobre el trazado oficial de su recorrido y se asigna al tramo entre los dos paraderos que la rodean; la velocidad del tramo es la mediana del promedio de las 4 transmisiones de los buses <i>en movimiento</i>. Es la velocidad de circulación: no incluye el tiempo detenido en paraderos (no es la velocidad comercial) y sí algo del frenado y la partida. <b>Punta</b> = 7–9 h y 18–20 h; <b>valle</b> = 11–16 h; solo días hábiles. <b>Buses en servicio</b> (análisis por línea) = en movimiento o detenido, con GPS al día.</p>
+<p class="note" style="margin-top:10px">No se cuentan como en servicio:</p>
+<table class="deftab">
+<tr><th>Situación</th><th>Criterio</th><th>Qué suele significar</th></tr>
+<tr><td><b>Encendido sin moverse</b></td><td>GPS al día, pero sin moverse en los últimos ~20 minutos.</td><td>Bus estacionado en un terminal o depósito con el equipo encendido (por ejemplo, el encendido masivo de la flota cerca de las 4:30).</td></tr>
+<tr><td><b>Sin servicio comercial</b></td><td>El código de servicio termina en "TS" (uno por unidad de negocio: T5TS, T19TS…).</td><td>Bus sin recorrido asignado: traslados entre el depósito y su recorrido, o fuera de servicio. Los buses pasan de TS a un recorrido al empezar el servicio y vuelven a TS al terminarlo. Es nuestra interpretación: el DTPM no publica una definición.</td></tr>
+<tr><td><b>Sin señal reciente</b></td><td>Última transmisión de hace más de 10 y hasta 190 minutos.</td><td>Bus que terminó su servicio y apagó el equipo, o con una falla de GPS o de comunicación.</td></tr>
+<tr><td><b>Fuera de operación</b></td><td>Última transmisión de hace más de 190 minutos.</td><td>La API también lista buses que no transmiten hace días. No se guardan.</td></tr>
+</table>
+<p class="note" style="margin-top:10px"><b>Flota (7 días)</b> = buses distintos (patentes) que transmitieron al menos una vez en los últimos 7 días: referencia del tamaño de la flota. "En servicio" se calcula desde el 15-nov-2026, cuando empezaron las capturas cada 10 minutos; para períodos anteriores se usan aproximaciones, indicadas en cada gráfico.<br>
+<b>Velocidad por tramo</b> (mapas y análisis por línea): cada posición GPS se ubica sobre el trazado oficial de su recorrido y se asigna al tramo entre los dos paraderos que la rodean; la velocidad del tramo es la mediana del promedio de las 4 transmisiones de los buses <i>en movimiento</i>. Es la velocidad de circulación: no incluye el tiempo detenido en paraderos (no es la velocidad comercial) y sí algo del frenado y la partida. <b>Punta</b> = 7–9 h y 18–20 h; <b>valle</b> = 11–16 h; solo días hábiles.</p>
 </details>
 
 <div class="card">
 <h2>Últimos 7 días</h2>
-<p class="note">Buses <b>operando</b> en cada captura: los que se movieron en los últimos ~20 minutos, incluidos los que en ese momento están detenidos en un paradero o semáforo. No cuenta a los buses encendidos en un terminal sin salir. Se separan los que tienen <b>servicio comercial</b> (un recorrido asignado) de los que circulan <b>sin servicio comercial</b> (código TS: traslados hacia o desde el terminal, sin recorrido). La línea punteada es la flota de referencia: buses distintos que transmitieron al menos una vez en los últimos 7 días. Antes del 15 de noviembre solo hay unas pocas capturas al día y no se puede calcular quién opera: se muestran como puntos de buses en movimiento.</p>
-<div class="legend"><span><i class="sw" style="background:var(--s1)"></i>Con servicio comercial</span><span><i class="sw" style="background:var(--s3)"></i>Sin servicio comercial (TS)</span><span><i class="sw" style="background:transparent;border-top:2px dashed var(--muted);height:0;width:14px;border-radius:0"></i>Flota con señal en 7 días</span></div>
+<p class="note"><b>Buses en servicio</b> en cada captura: con un recorrido asignado y que se movieron en los últimos ~20 minutos (incluye a los detenidos en un paradero o semáforo). La línea punteada es la flota de referencia: buses distintos que transmitieron al menos una vez en los últimos 7 días. Antes del 15 de noviembre solo hay unas pocas capturas al día y no se puede calcular quién está en servicio: los círculos muestran los buses en movimiento en esas capturas, como referencia aproximada.</p>
+<div class="legend"><span><i class="sw" style="background:var(--s1)"></i>Buses en servicio</span><span><i class="sw" style="background:transparent;border:1.5px solid var(--s1);border-radius:50%"></i>En movimiento (capturas antiguas)</span><span><i class="sw" style="background:transparent;border-top:2px dashed var(--muted);height:0;width:14px;border-radius:0"></i>Flota con señal en 7 días</span></div>
 <div id="serie"></div>
 </div>
 
@@ -85,9 +90,9 @@ figure{margin:0}
 <div id="perfil"></div>
 </div>
 <div class="card">
-<h2>Buses operando por operador, última captura</h2>
+<h2>Buses en servicio por operador, última captura</h2>
 <p class="note" id="opnote"></p>
-<div class="legend"><span><i class="sw" style="background:var(--s1)"></i>Con servicio comercial</span><span><i class="sw" style="background:var(--s3)"></i>Sin servicio comercial (TS)</span><span><i class="sw" style="background:var(--ctx);opacity:.45"></i>Flota (7 días)</span></div>
+<div class="legend"><span><i class="sw" style="background:var(--s1)"></i>En servicio</span><span><i class="sw" style="background:var(--ctx);opacity:.45"></i>Flota (7 días)</span></div>
 <div id="ops"></div>
 </div>
 </div>
@@ -127,7 +132,7 @@ figure{margin:0}
 </div>
 <div id="linmapa" style="position:relative;overflow:hidden;border-radius:8px;cursor:grab"></div>
 <h2 style="font-size:15px">Buses en servicio por hora</h2>
-<p class="note">Mediana de buses del recorrido en movimiento o en paradero, por hora de un día hábil.</p>
+<p class="note">Mediana por hora de un día hábil (may–nov 2026). Aproximación: buses del recorrido en movimiento o avanzando lento en el momento de cada captura; con solo ~4 capturas al día en ese período no se puede aplicar el criterio exacto de "en servicio", que subestima levemente a los buses completamente detenidos. Se recalculará con las capturas cada 10 minutos.</p>
 <div id="linbuses"></div>
 <p class="note" style="margin-top:14px">Cada punto es un tramo entre dos paraderos consecutivos, ubicado en su punto medio. Curvas suavizadas con la mediana de 3 tramos; al pasar el cursor se ve el valor de cada tramo.</p><div class="legend"><span><i class="sw" style="background:var(--ctx)"></i>Valle (11–16 h)</span><span><i class="sw" style="background:var(--s1)"></i>Punta mañana (7–9 h)</span><span><i class="sw" style="background:var(--s2)"></i>Punta tarde (18–20 h)</span></div>
 <div id="linsent"></div>
@@ -158,26 +163,25 @@ const parse=d3.timeParse('%Y-%m-%dT%H:%M'); const act=parse(V.actualizado);
 document.getElementById('sub').textContent=`Transporte público metropolitano · última captura: ${es.format('%e de %B, %H:%M')(act)} (hora de Chile)`;
 const tot=d3.sum(V.ahora,d=>d.total), mov=d3.sum(V.ahora,d=>d.mov), sin=V.ahora.some(d=>d.sin!=null)?d3.sum(V.ahora,d=>d.sin||0):null;
 const hayOp=V.ahora.some(d=>d.op_com!=null);
-const opc=hayOp?d3.sum(V.ahora,d=>d.op_com||0):null, opt=hayOp?d3.sum(V.ahora,d=>d.op_ts||0):null;
-const ult=V.serie.at(-1), opcMov=ult&&ult.length>4?ult[6]:null;
-const k=[['Operando ahora',opc==null?'—':fmt(opc+opt),'se movieron en los últimos ~20 min'],['Con servicio comercial',opc==null?'—':fmt(opc),opcMov==null?'':`${fmt(opcMov)} en movimiento · ${fmt(opc-opcMov)} detenidos`],['Sin servicio comercial',opt==null?'—':fmt(opt),'código TS: traslados, sin recorrido'],['Flota (7 días)',V.flota_7d?fmt(V.flota_7d):'—','buses distintos con señal'],['Operadores',V.ahora.length,'unidades de negocio']];
+const enS=hayOp?d3.sum(V.ahora,d=>d.op_com||0):null, tsN=hayOp?d3.sum(V.ahora,d=>d.op_ts||0):null;
+const ult=V.serie.at(-1), enMov=ult&&ult.length>4?ult[6]:null;
+const k=[['Buses en servicio',enS==null?'—':fmt(enS),enMov==null?'operando con recorrido asignado':`${fmt(enMov)} en movimiento · ${fmt(enS-enMov)} detenidos en ruta`],['Flota (7 días)',V.flota_7d?fmt(V.flota_7d):'—','buses distintos con señal'],['De la flota en servicio',enS!=null&&V.flota_7d?Math.round(enS/V.flota_7d*100)+' %':'—','buses en servicio / flota'],['Operadores',V.ahora.length,'unidades de negocio']];
 document.getElementById('kpis').innerHTML=k.map(([l,v,d])=>`<div class="kpi"><div class="l">${l}</div><div class="v">${v}</div><div class="d">${d}</div></div>`).join('');
 // serie
 const ser=V.serie.map(([t,a,b,c,oc,ot,ocm])=>({t:parse(t),total:a,mov:b,sin:c,oc:oc??null,ot:ot??null,ocm:ocm??null}));
 let g=0;ser.forEach((d,i)=>{if(i>0&&(d.t-ser[i-1].t)>30*60000)g++;d.g=g});
 const dens=ser.filter(d=>d.oc!=null), rala=ser.filter(d=>d.oc==null);
-const ar=dens.flatMap(d=>[{t:d.t,g:d.g,k:'Con servicio comercial',v:d.oc},{t:d.t,g:d.g,k:'Sin servicio comercial (TS)',v:d.ot}]);
 const F=V.flota_7d;
 document.getElementById('serie').append(Plot.plot({width:W('serie'),height:280,marginLeft:48,marginRight:12,style:{background:'transparent',fontSize:'12px'},
  x:{type:'time',label:null,ticks:d3.timeDay.every(1),tickFormat:es.format('%a %e')},y:{grid:true,label:'buses',tickFormat:fmt,domain:[0,F?F*1.08:undefined]},
- color:{domain:['Con servicio comercial','Sin servicio comercial (TS)'],range:[C.s1,C.s3]},
  marks:[
   F?Plot.ruleY([F],{stroke:C.muted,strokeDasharray:'4,3'}):null,
   F?Plot.text([F],{x:ser.at(-1).t,y:F,text:d=>`Flota con señal en los últimos 7 días: ${fmt(d)}`,dy:-7,textAnchor:'end',fill:C.muted}):null,
-  Plot.areaY(ar,Plot.stackY({x:'t',y:'v',fill:'k',z:d=>d.k+'|'+d.g,order:['Con servicio comercial','Sin servicio comercial (TS)'],fillOpacity:0.85})),
-  Plot.dot(rala,{x:'t',y:'mov',fill:C.s1,r:2.8}),
-  Plot.tip(dens,Plot.pointerX({x:'t',y:d=>d.oc+d.ot,title:d=>`${es.format('%a %e %b, %H:%M')(d.t)}\nOperando: ${fmt(d.oc+d.ot)}\n  con servicio comercial: ${fmt(d.oc)} (${fmt(d.ocm)} en movimiento, ${fmt(d.oc-d.ocm)} detenidos)\n  sin servicio comercial (TS): ${fmt(d.ot)}`})),
-  Plot.tip(rala,Plot.pointer({x:'t',y:'mov',title:d=>`${es.format('%a %e %b, %H:%M')(d.t)}\nEn movimiento: ${fmt(d.mov)}\n(captura antigua: sin datos para calcular buses operando)`}))
+  Plot.areaY(dens,{x:'t',y:'oc',z:'g',fill:C.s1,fillOpacity:0.15}),
+  Plot.lineY(dens,{x:'t',y:'oc',z:'g',stroke:C.s1,strokeWidth:2}),
+  Plot.dot(rala,{x:'t',y:'mov',stroke:C.s1,fill:'none',r:2.8}),
+  Plot.tip(dens,Plot.pointerX({x:'t',y:'oc',title:d=>`${es.format('%a %e %b, %H:%M')(d.t)}\nBuses en servicio: ${fmt(d.oc)}\n(${Math.round(d.oc/F*100)} % de la flota)`})),
+  Plot.tip(rala,Plot.pointer({x:'t',y:'mov',title:d=>`${es.format('%a %e %b, %H:%M')(d.t)}\nEn movimiento: ${fmt(d.mov)}\n(captura antigua: no permite calcular buses en servicio)`}))
  ].filter(Boolean)}));
 // perfil
 const pf=V.perfil.flatMap(d=>[{h:d.h,k:'Histórico',v:d.historico}].concat(d.semana==null?[]:[{h:d.h,k:'Últimos 7 días',v:d.semana}]));
@@ -185,17 +189,15 @@ document.getElementById('perfil').append(Plot.plot({width:W('perfil'),height:240
  x:{label:'hora',domain:[0,23],ticks:[0,3,6,9,12,15,18,21]},y:{grid:true,label:'buses en movimiento',tickFormat:fmt},color:{domain:['Histórico','Últimos 7 días'],range:[C.ctx,C.s1]},
  marks:[Plot.lineY(pf,{x:'h',y:'v',stroke:'k',strokeWidth:2}),Plot.dot(pf.filter(d=>d.k!=='Histórico'),{x:'h',y:'v',fill:'k',r:3}),Plot.tip(pf,Plot.pointer({x:'h',y:'v',title:d=>`${d.h}:00 · ${d.k}: ${fmt(d.v)}`}))]}));
 // operadores
-const ops=V.ahora.map(d=>({n:d.nombre.replace(/^U\d+ - /,''),oc:d.op_com??null,ot:d.op_ts??null,mov:d.mov,flota:d.flota_7d||null})).map(d=>({...d,act:d.oc==null?d.mov:d.oc+d.ot})).sort((a,b)=>(b.flota??b.act)-(a.flota??a.act));
-const conOp=ops.some(d=>d.oc!=null);
-const ol=conOp?ops.flatMap(d=>[{n:d.n,k:'Con servicio comercial',v:d.oc||0},{n:d.n,k:'Sin servicio comercial (TS)',v:d.ot||0}]):ops.map(d=>({n:d.n,k:'Con servicio comercial',v:d.mov}));
+const ops=V.ahora.map(d=>({n:d.nombre.replace(/^U\d+ - /,''),oc:d.op_com??null,mov:d.mov,flota:d.flota_7d||null})).map(d=>({...d,act:d.oc==null?d.mov:d.oc})).sort((a,b)=>(b.flota??b.act)-(a.flota??a.act));
 const tieneF=ops.some(d=>d.flota);
-document.getElementById('opnote').textContent='Buses operando en la última captura sobre la flota de cada unidad de negocio (buses distintos con señal en los últimos 7 días). El porcentaje es la parte de la flota que está operando.';
+document.getElementById('opnote').textContent='Buses en servicio en la última captura sobre la flota de cada unidad de negocio (buses distintos con señal en los últimos 7 días). El porcentaje es la parte de la flota que está en servicio.';
 document.getElementById('ops').append(Plot.plot({width:W('ops'),height:Math.max(260,ops.length*24+40),marginLeft:150,marginRight:44,style:{background:'transparent',fontSize:'12px'},
- y:{domain:ops.map(d=>d.n),label:null},x:{grid:true,label:'buses',tickFormat:fmt},color:{domain:['Con servicio comercial','Sin servicio comercial (TS)'],range:[C.s1,C.s3]},
- marks:[tieneF?Plot.barX(ops,{y:'n',x:'flota',fill:C.ctx,fillOpacity:0.35,inset:1}):null,
-  Plot.barX(ol,Plot.stackX({y:'n',x:'v',fill:'k',inset:1})),
+ y:{domain:ops.map(d=>d.n),label:null},x:{grid:true,label:'buses',tickFormat:fmt},
+ marks:[tieneF?Plot.barX(ops,{y:'n',x:'flota',fill:C.ctx,fillOpacity:0.35,insetTop:1,insetBottom:1}):null,
+  Plot.barX(ops,{y:'n',x:'act',fill:C.s1,insetTop:1,insetBottom:1}),
   tieneF?Plot.text(ops,{y:'n',x:'flota',text:d=>d.flota?Math.round(d.act/d.flota*100)+' %':'',dx:4,textAnchor:'start',fill:C.ink2}):null,
-  Plot.tip(ops,Plot.pointerY({y:'n',x:d=>d.flota??d.act,title:d=>`${d.n}\nOperando: ${fmt(d.act)}`+(d.oc!=null?`\n  con servicio comercial: ${fmt(d.oc)}\n  sin servicio comercial (TS): ${fmt(d.ot)}`:'')+(d.flota?`\nFlota 7 días: ${fmt(d.flota)} (${Math.round(d.act/d.flota*100)} % operando)`:'')}))].filter(Boolean)}));
+  Plot.tip(ops,Plot.pointerY({y:'n',x:d=>d.flota??d.act,title:d=>`${d.n}\nEn servicio: ${fmt(d.act)}`+(d.flota?`\nFlota 7 días: ${fmt(d.flota)} (${Math.round(d.act/d.flota*100)} % en servicio)`:'')}))].filter(Boolean)}));
 // mapa de tramos
 const T=S.tramos_red.map(([cs,p,v,c,calle,entre,cm,ns])=>({cs,p,v,c,calle,entre,cm,ns,mid:cs[Math.floor(cs.length/2)]}));
 document.getElementById('mapnote').textContent=`${fmt(T.length)} tramos entre paraderos consecutivos con datos suficientes · ${S.periodo}. Velocidad de circulación de los buses en movimiento en cada tramo (no incluye el tiempo detenidos en paraderos). Punta = la peor entre 7–9 h y 18–20 h; valle = 11–16 h.`;
@@ -243,7 +245,7 @@ cargar('lineas').catch(e=>{document.getElementById('linerr').textContent='No se 
   const all=Object.values(L.sentidos).flatMap(s=>s.tramos);
   const vp=med(all.map(r=>r[1]==null&&r[2]==null?null:Math.min(r[1]??99,r[2]??99))), vv=med(all.map(r=>r[3]));
   const km=Object.values(L.sentidos).map(s=>s.paraderos.at(-1)[0]);
-  document.getElementById('linkpis').innerHTML=[['Buses en punta',pk,'máximo 7–9 h / 18–20 h'],['Buses en valle',vl,'mediana 11–16 h'],['Velocidad en punta',vp==null?'—':vp.toFixed(1)+' km/h','mediana de tramos, peor punta'],['Velocidad en valle',vv==null?'—':vv.toFixed(1)+' km/h','mediana de tramos'],['Largo aprox.',km.map(k=>k.toFixed(1)).join(' / ')+' km','por sentido']].map(([l,v,d])=>`<div class="kpi"><div class="l">${l}</div><div class="v" style="font-size:22px">${v}</div><div class="d">${d}</div></div>`).join('');
+  document.getElementById('linkpis').innerHTML=[['Buses en servicio en punta',pk,'máximo 7–9 h / 18–20 h (aprox.)'],['Buses en servicio en valle',vl,'mediana 11–16 h (aprox.)'],['Velocidad en punta',vp==null?'—':vp.toFixed(1)+' km/h','mediana de tramos, peor punta'],['Velocidad en valle',vv==null?'—':vv.toFixed(1)+' km/h','mediana de tramos'],['Largo aprox.',km.map(k=>k.toFixed(1)).join(' / ')+' km','por sentido']].map(([l,v,d])=>`<div class="kpi"><div class="l">${l}</div><div class="v" style="font-size:22px">${v}</div><div class="d">${d}</div></div>`).join('');
   lmS=Object.keys(L.sentidos)[0];
   document.getElementById('lmsent').innerHTML=Object.entries(L.sentidos).map(([d,S2])=>`<button data-s="${d}" class="${d===lmS?'on':''}">Hacia ${S2.destino}</button>`).join('');
   document.querySelectorAll('#lmsent button').forEach(b=>b.onclick=()=>{lmS=b.dataset.s;document.querySelectorAll('#lmsent button').forEach(x=>x.classList.toggle('on',x===b));mapaLinea(id)});
