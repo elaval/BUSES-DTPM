@@ -64,7 +64,7 @@ jobs:
         mkdir -p "$PUB/data"
         cp data/metricas_historicas.parquet data/datos_recientes.parquet "$PUB/data/"
         # Dashboard (GitHub Pages sirve la raíz de esta rama): página + datos livianos
-        cp pagina/index.html pagina/data_estatico.json "$PUB/"
+        cp pagina/index.html pagina/data_estatico.json pagina/lineas.json "$PUB/"
         python scripts/generar_datos_artifact.py "$PUB/data_vivo.json"
         touch "$PUB/.nojekyll"
         cat > "$PUB/README.md" <<'TXT'

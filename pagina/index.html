@@ -69,6 +69,24 @@ figure{margin:0}
 <div id="mapa"></div>
 </div>
 
+<div class="card" id="linea-card">
+<h2>Análisis por línea</h2>
+<p class="note">Elige un recorrido para ver cuántos buses opera por hora y cómo cambia su velocidad a lo largo del trazado (días hábiles, may–nov 2026).</p>
+<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin:4px 0 12px">
+<label for="lin" style="font-size:13px;color:var(--ink2)">Recorrido</label>
+<input id="lin" list="linlist" value="503" style="font:inherit;padding:6px 10px;border-radius:8px;border:1px solid var(--border);background:var(--surface);color:var(--ink);width:120px">
+<datalist id="linlist"></datalist>
+<span id="linerr" style="font-size:13px;color:#d03b3b"></span>
+</div>
+<div id="linhead"></div>
+<div class="kpis" id="linkpis"></div>
+<h2 style="font-size:15px">Buses en servicio por hora</h2>
+<p class="note">Mediana de buses del recorrido en movimiento o en paradero, por hora de un día hábil.</p>
+<div id="linbuses"></div>
+<p class="note" style="margin-top:14px">Curvas suavizadas con la mediana de 5 paraderos consecutivos (~1,5 km); al pasar el cursor se ve el valor de cada paradero.</p><div class="legend"><span><i class="sw" style="background:var(--ctx)"></i>Valle (11–16 h)</span><span><i class="sw" style="background:var(--s1)"></i>Punta mañana (7–9 h)</span><span><i class="sw" style="background:var(--s2)"></i>Punta tarde (18–20 h)</span></div>
+<div id="linsent"></div>
+</div>
+
 <div class="card">
 <h2>Tramos más lentos en hora punta</h2>
 <p class="note">Calles con al menos 4 paraderos y 2 servicios; velocidad mediana de buses en movimiento (km/h).</p>
@@ -135,6 +153,48 @@ mapa();
 document.getElementById('tramos').innerHTML='<table><thead><tr><th>Tramo</th><th>Comuna</th><th class="n">Punta</th><th class="n">Valle</th><th class="n">Caída</th><th>Peor</th></tr></thead><tbody>'+
  S.tramos.map(t=>`<tr><td>${t.calle}${t.cruces&&t.cruces!==t.calle?`<br><span style="color:var(--muted);font-size:12px">${t.cruces}</span>`:''}</td><td>${t.comuna}</td><td class="n">${t.punta.toFixed(1)}</td><td class="n">${t.valle.toFixed(1)}</td><td class="n">${t.caida} %</td><td>${t.peor}</td></tr>`).join('')+'</tbody></table>';
 document.getElementById('foot').innerHTML=`Fuente: API de posiciones del DTPM, capturada por el repo <a href="https://github.com/elaval/BUSES-DTPM" style="color:inherit">elaval/BUSES-DTPM</a>. Recorridos y paraderos: GTFS oficial del DTPM (julio 2026). Las secciones de flota se actualizan con cada refresco de esta página; el análisis por paradero corresponde a ${S.periodo}.`;
+
+// ===== análisis por línea =====
+fetch('lineas.json').then(r=>r.json()).then(LN=>{
+ const ids=Object.keys(LN).sort((a,b)=>a.localeCompare(b,'es',{numeric:true}));
+ document.getElementById('linlist').innerHTML=ids.map(i=>`<option value="${i}">${i} · ${LN[i].nombre}</option>`).join('');
+ const med=a=>{const v=a.filter(x=>x!=null).sort((x,y)=>x-y);return v.length?v[Math.floor(v.length/2)]:null};
+ function show(id){
+  const L=LN[id]; const err=document.getElementById('linerr');
+  if(!L){err.textContent=id?'No hay datos para ese recorrido':'';return} err.textContent='';
+  if(location.hash!=='#linea-'+id) history.replaceState(null,'','#linea-'+id);
+  document.getElementById('linhead').innerHTML=`<p style="margin:0 0 10px"><b>${id}</b> · ${L.nombre} <span style="color:var(--ink2)">· operador: ${L.operador||'—'}</span></p>`;
+  const bh=L.buses_hora, pk=Math.max(bh[7],bh[8],bh[18],bh[19]), vl=Math.round(med(bh.slice(11,16)));
+  const all=Object.values(L.sentidos).flatMap(s=>s.paraderos);
+  const vp=med(all.map(r=>r[2]==null&&r[3]==null?null:Math.min(r[2]??99,r[3]??99))), vv=med(all.map(r=>r[4]));
+  const km=Object.values(L.sentidos).map(s=>s.paraderos.at(-1)[0]);
+  document.getElementById('linkpis').innerHTML=[['Buses en punta',pk,'máximo 7–9 h / 18–20 h'],['Buses en valle',vl,'mediana 11–16 h'],['Velocidad en punta',vp==null?'—':vp.toFixed(1)+' km/h','mediana de paraderos, peor punta'],['Velocidad en valle',vv==null?'—':vv.toFixed(1)+' km/h','mediana de paraderos'],['Largo aprox.',km.map(k=>k.toFixed(1)).join(' / ')+' km','por sentido']].map(([l,v,d])=>`<div class="kpi"><div class="l">${l}</div><div class="v" style="font-size:22px">${v}</div><div class="d">${d}</div></div>`).join('');
+  const eb=document.getElementById('linbuses'); eb.innerHTML='';
+  eb.append(Plot.plot({width:W('linbuses'),height:180,marginLeft:40,style:{background:'transparent',fontSize:'12px'},x:{label:'hora',tickFormat:d=>d+'h',padding:0.15},y:{grid:true,label:'buses'},
+   marks:[Plot.barY(bh.map((v,h)=>({h,v})),{x:'h',y:'v',fill:C.s1,rx:3,tip:true,title:d=>`${d.h}:00 · ${d.v} buses`}),Plot.ruleY([0])]}));
+  const es2=document.getElementById('linsent'); es2.innerHTML='';
+  for(const [d,S2] of Object.entries(L.sentidos)){
+   const P2=S2.paraderos.map(r=>({km:r[0],n:r[1],am:r[2],pm:r[3],va:r[4]}));
+   const sm=key=>P2.map((r,i)=>{const w=P2.slice(Math.max(0,i-2),i+3).map(q=>q[key]).filter(x=>x!=null);return r[key]==null||w.length<2?null:med(w)});
+   const sv={va:sm('va'),am:sm('am'),pm:sm('pm')};
+   const lg=P2.flatMap((r,i)=>[['Valle',sv.va[i],r.va],['Punta mañana',sv.am[i],r.am],['Punta tarde',sv.pm[i],r.pm]].filter(x=>x[1]!=null).map(([k,v,raw])=>({km:r.km,n:r.n,k,v,raw})));
+   const box=document.createElement('div'); box.style.marginTop='14px';
+   const worst=P2.filter(r=>r.am!=null||r.pm!=null).map(r=>({...r,p:Math.min(r.am??99,r.pm??99)})).sort((a,b)=>a.p-b.p).slice(0,3);
+   box.innerHTML=`<h2 style="font-size:15px">Velocidad a lo largo del recorrido · hacia ${S2.destino} (${d==='I'?'ida':'regreso'})</h2><p class="note">${lg.length?'Más lento en punta: '+worst.map(w=>`${w.n} (${w.p.toFixed(1)} km/h)`).join('; '):'Sin datos suficientes para este sentido.'}</p>`;
+   es2.append(box);
+   if(!lg.length) continue;
+   const w=W('linsent');
+   box.append(Plot.plot({width:w,height:230,marginLeft:40,style:{background:'transparent',fontSize:'12px'},x:{label:'km desde el inicio',grid:false},y:{grid:true,label:'km/h',domain:[0,Math.max(30,d3.max(lg,q=>q.v))]},
+    color:{domain:['Valle','Punta mañana','Punta tarde'],range:[C.ctx,C.s1,C.s2]},
+    marks:[Plot.lineY(lg,{x:'km',y:'v',stroke:'k',strokeWidth:2,}),Plot.tip(lg,Plot.pointer({x:'km',y:'v',title:q=>`${q.n}\nkm ${q.km.toFixed(1)} · ${q.k}: ${q.raw.toFixed(1)} km/h en este paradero`}))]}));
+  }
+ }
+ const inp=document.getElementById('lin');
+ const h0=(location.hash.match(/^#linea-(.+)$/)||[])[1]; if(h0&&LN[decodeURIComponent(h0)]) inp.value=decodeURIComponent(h0);
+ inp.addEventListener('change',()=>show(inp.value.trim().split(' ')[0]));
+ inp.addEventListener('input',()=>{const v=inp.value.trim(); if(LN[v]) show(v)});
+ show(inp.value.trim());
+});
 }).catch(e=>{document.getElementById('sub').textContent='No se pudieron cargar los datos: '+e});
 </script>
 </body>
