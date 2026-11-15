@@ -146,7 +146,7 @@ def main():
     df_ultimo = df_filtrado[df_filtrado['nivel'] == 'operador'].sort_values('timestamp').groupby('operador').tail(1)
 
     if not df_ultimo.empty:
-        col1, col2, col3, col4 = st.columns(4)
+        col1, col2, col3, col4, col5 = st.columns(5)
 
         total_buses = df_ultimo['total_buses'].sum()
         buses_en_movimiento = df_ultimo['buses_en_movimiento'].sum()
@@ -156,7 +156,11 @@ def main():
         col1.metric("Total Buses", f"{total_buses:,}")
         col2.metric("En Movimiento", f"{buses_en_movimiento:,}", f"{pct_activo:.1f}%")
         col3.metric("Detenidos", f"{buses_detenidos:,}")
-        col4.metric("Operadores", len(df_ultimo))
+        if 'buses_sin_senal' in df_ultimo and df_ultimo['buses_sin_senal'].notna().any():
+            sin_senal = int(df_ultimo['buses_sin_senal'].fillna(0).sum())
+            col4.metric("Sin señal reciente", f"{sin_senal:,}",
+                        help="Buses cuyo último GPS tiene entre 10 y 190 minutos")
+        col5.metric("Operadores", len(df_ultimo))
 
     # === GRÁFICOS PRINCIPALES ===
 
@@ -183,7 +187,7 @@ def main():
             }
         )
         fig_temporal.update_layout(height=400, hovermode='x unified')
-        st.plotly_chart(fig_temporal, use_container_width=True)
+        st.plotly_chart(fig_temporal, width='stretch')
 
     with col2:
         st.subheader("📊 Distribución Actual por Operador")
@@ -216,7 +220,7 @@ def main():
             yaxis_title='Operador',
             legend=dict(orientation='h', y=1.1, x=0.5, xanchor='center')
         )
-        st.plotly_chart(fig_barras, use_container_width=True)
+        st.plotly_chart(fig_barras, width='stretch')
 
     # Fila 2: Porcentaje de actividad y mapa de calor
     col1, col2 = st.columns(2)
@@ -238,7 +242,7 @@ def main():
         fig_pct.update_layout(height=400, hovermode='x unified')
         fig_pct.add_hline(y=50, line_dash="dash", line_color="gray",
                          annotation_text="50%", annotation_position="right")
-        st.plotly_chart(fig_pct, use_container_width=True)
+        st.plotly_chart(fig_pct, width='stretch')
 
     with col2:
         st.subheader("🔥 Mapa de Calor - Actividad por Hora")
@@ -263,7 +267,7 @@ def main():
                 aspect='auto'
             )
             fig_heatmap.update_layout(height=400)
-            st.plotly_chart(fig_heatmap, use_container_width=True)
+            st.plotly_chart(fig_heatmap, width='stretch')
 
     # === ANÁLISIS DE SERVICIOS ===
     st.header("🚏 Análisis por Servicio")
@@ -293,7 +297,7 @@ def main():
                 color_continuous_scale='Viridis'
             )
             fig_top.update_layout(height=400)
-            st.plotly_chart(fig_top, use_container_width=True)
+            st.plotly_chart(fig_top, width='stretch')
 
         with col2:
             st.subheader("⚡ Servicios Más Eficientes")
@@ -315,7 +319,7 @@ def main():
                 color_continuous_scale='Blues'
             )
             fig_eficientes.update_layout(height=400)
-            st.plotly_chart(fig_eficientes, use_container_width=True)
+            st.plotly_chart(fig_eficientes, width='stretch')
 
     # === TABLA DE DATOS ===
     st.header("📋 Datos Detallados")
@@ -340,7 +344,7 @@ def main():
 
         st.dataframe(
             df_tabla_op,
-            use_container_width=True,
+            width='stretch',
             hide_index=True
         )
 
@@ -364,7 +368,7 @@ def main():
 
             st.dataframe(
                 df_tabla_serv,
-                use_container_width=True,
+                width='stretch',
                 hide_index=True
             )
 
@@ -392,7 +396,7 @@ def main():
             }
             df_mapa['color'] = df_mapa['estado'].map(color_map)
 
-            fig_mapa = px.scatter_mapbox(
+            fig_mapa = px.scatter_map(
                 df_mapa,
                 lat='latitud',
                 lon='longitud',
@@ -401,15 +405,12 @@ def main():
                 color_discrete_map=color_map,
                 zoom=10,
                 height=600,
+                center={"lat": -33.45, "lon": -70.65},  # Centro de Santiago
+                map_style="open-street-map",
                 title=f"Posiciones de buses (últimos 15 min) - {len(df_mapa)} buses"
             )
 
-            fig_mapa.update_layout(
-                mapbox_style="open-street-map",
-                mapbox_center={"lat": -33.45, "lon": -70.65}  # Centro de Santiago
-            )
-
-            st.plotly_chart(fig_mapa, use_container_width=True)
+            st.plotly_chart(fig_mapa, width='stretch')
 
             # Leyenda
             col1, col2, col3 = st.columns(3)
