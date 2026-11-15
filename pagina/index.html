@@ -43,6 +43,7 @@ footer{color:var(--muted);font-size:12px;margin-top:24px}
 #lmpanel .t{font-weight:600;margin-bottom:4px} #lmpanel .r{display:flex;flex-wrap:wrap;gap:4px;margin-top:4px}
 #lmpanel button{font:inherit;font-size:12px;padding:2px 7px;border-radius:6px;border:1px solid var(--border);background:var(--bg);color:var(--ink);cursor:pointer}
 #lmpanel button.cur{border-color:var(--s1);color:var(--s1);font-weight:600}
+#linmapa svg .zoomable path,#linmapa svg .zoomable line{vector-effect:non-scaling-stroke}
 figure{margin:0}
 </style>
 </head>
@@ -118,7 +119,11 @@ figure{margin:0}
 <div class="tabs" id="lmper"><button data-p="pk" class="on">Peor punta</button><button data-p="am">Punta mañana</button><button data-p="pm">Punta tarde</button><button data-p="va">Valle</button></div>
 </div>
 <div id="lmleg"></div>
-<div id="linmapa" style="position:relative"></div>
+<div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;margin:2px 0 6px">
+<div class="tabs" style="margin:0"><button id="lmzin" aria-label="Acercar">+</button><button id="lmzout" aria-label="Alejar">−</button><button id="lmzred">Ver toda la red</button><button id="lmzrec">Volver al recorrido</button></div>
+<span style="font-size:12px;color:var(--muted)">Arrastra para mover · Ctrl/⌘ + rueda (o pellizca) para hacer zoom</span>
+</div>
+<div id="linmapa" style="position:relative;overflow:hidden;border-radius:8px;cursor:grab"></div>
 <h2 style="font-size:15px">Buses en servicio por hora</h2>
 <p class="note">Mediana de buses del recorrido en movimiento o en paradero, por hora de un día hábil.</p>
 <div id="linbuses"></div>
@@ -263,9 +268,9 @@ cargar('lineas').catch(e=>{document.getElementById('linerr').textContent='No se 
   const box={type:'MultiPoint',coordinates:[[d3.min(lons)-pad,d3.min(lats)-pad],[d3.max(lons)+pad,d3.max(lats)+pad]]};
   const proj=d3.geoMercator().fitExtent([[10,10],[w-10,h-10]],box);
   const [x0,y0]=proj.invert([0,h]), [x1,y1]=proj.invert([w,0]);
-  const vis=RED.filter(r=>r.lo>=x0&&r.lo<=x1&&r.la>=y0&&r.la<=y1);
+  const vis=RED;
   const tp=TR.flatMap(t=>t.cs.map(([lo,la])=>({lo,la,k:t.k,v:t.v})));
-  const plot=Plot.plot({width:w,height:h,style:{background:'transparent',fontSize:'11px'},projection:()=>proj,
+  const plot=Plot.plot({width:w,height:h,style:{background:'transparent',fontSize:'11px'},projection:{type:()=>proj,clip:false},
    marks:[Plot.geo(S.comunas,{stroke:C.muted,strokeWidth:0.6,strokeOpacity:0.6,fill:'none'}),
     Plot.text(S.comunas.features,Plot.centroid({text:d=>d.properties.n,fill:C.muted,fontSize:10,stroke:'var(--surface)',strokeWidth:3,paintOrder:'stroke'})),
     Plot.dot(vis,{x:'lo',y:'la',r:1.8,fill:C.ctx,fillOpacity:0.7}),
@@ -275,9 +280,26 @@ cargar('lineas').catch(e=>{document.getElementById('linerr').textContent='No se 
     Plot.text([P2[0],P2.at(-1)],{x:'lo',y:'la',text:(d,i)=>i?'Fin':'Inicio',dy:-12,fontWeight:600,fill:'currentColor',stroke:'var(--surface)',strokeWidth:3,paintOrder:'stroke'})]});
   el.append(plot);
   const panel=document.createElement('div'); panel.id='lmpanel'; panel.hidden=true; el.append(panel);
+  const svg=plot.tagName==='svg'?plot:plot.querySelector('svg');
+  const NS='http://www.w3.org/2000/svg', zg=document.createElementNS(NS,'g'); zg.setAttribute('class','zoomable');
+  [...svg.childNodes].filter(n=>n.nodeName!=='style').forEach(n=>zg.appendChild(n)); svg.appendChild(zg);
+  const circ=[...zg.querySelectorAll('circle')].map(c=>[c,+c.getAttribute('r')||+c.parentNode.getAttribute('r')||2]);
+  const txt=[...zg.querySelectorAll('text')].map(t=>[t,parseFloat(getComputedStyle(t).fontSize)||11]);
+  let tf=d3.zoomIdentity, raf=0;
+  const ajustar=()=>{raf=0;const k=tf.k;circ.forEach(([c,r])=>c.setAttribute('r',r/Math.sqrt(k)));txt.forEach(([t,f])=>t.style.fontSize=(f/k)+'px');zg.querySelectorAll('text').forEach(t=>t.setAttribute('stroke-width',3/k))};
+  const zoom=d3.zoom().scaleExtent([0.25,16]).filter(e=>e.type==='wheel'?(e.ctrlKey||e.metaKey):!e.button)
+   .on('start',()=>{el.style.cursor='grabbing'}).on('end',()=>{el.style.cursor='grab'})
+   .on('zoom',e=>{tf=e.transform;zg.setAttribute('transform',tf);if(!pinned)panel.hidden=true;else{panel.hidden=true;pinned=false}if(!raf)raf=requestAnimationFrame(ajustar)});
+  d3.select(svg).call(zoom).on('dblclick.zoom',null);
+  const sel3=d3.select(svg).transition().duration(450);
+  document.getElementById('lmzin').onclick=()=>d3.select(svg).transition().duration(300).call(zoom.scaleBy,1.6,[w/2,h/2]);
+  document.getElementById('lmzout').onclick=()=>d3.select(svg).transition().duration(300).call(zoom.scaleBy,1/1.6,[w/2,h/2]);
+  document.getElementById('lmzrec').onclick=()=>d3.select(svg).transition().duration(450).call(zoom.transform,d3.zoomIdentity);
+  document.getElementById('lmzred').onclick=()=>{const xy=RED.map(r=>proj([r.lo,r.la]));const [ax,bx]=d3.extent(xy,d=>d[0]),[ay,by]=d3.extent(xy,d=>d[1]);const k=Math.min(w/(bx-ax),h/(by-ay))*0.95;
+   d3.select(svg).transition().duration(600).call(zoom.transform,d3.zoomIdentity.translate(w/2,h/2).scale(k).translate(-(ax+bx)/2,-(ay+by)/2))};
   const pts=[...P2.map(r=>({...r,mine:true})),...TR.map(t=>({...t,lo:t.mid[0],la:t.mid[1],mine:true,tramo:true})),...vis.map(r=>({...r,mine:false}))].map(r=>{const [px,py]=proj([r.lo,r.la]);return {...r,px,py}});
   const qS=d3.quadtree(pts.filter(d=>d.mine&&!d.tramo),d=>d.px,d=>d.py), qT=d3.quadtree(pts.filter(d=>d.tramo),d=>d.px,d=>d.py), qtR=d3.quadtree(pts.filter(d=>!d.mine),d=>d.px,d=>d.py);
-  const buscar=(x,y)=>qS.find(x,y,6)||qT.find(x,y,14)||qtR.find(x,y,8);
+  const buscar=(x,y)=>{const k=tf.k;return qS.find(x,y,6/k)||qT.find(x,y,14/k)||qtR.find(x,y,8/k)};
   let pinned=false;
   function contenido(p){
    if(p.tramo) return `<div class="t">${p.n}</div><div>Línea ${id}: ${[['Punta mañana',p.am],['Punta tarde',p.pm],['Valle',p.va]].map(([k,v])=>`${k} ${v==null?'—':v.toFixed(1)+' km/h'}`).join(' · ')}</div><div style="margin-top:4px;color:var(--ink2)">Pasa el cursor sobre un paradero para ver sus recorridos.</div>`;
@@ -287,12 +309,11 @@ cargar('lineas').catch(e=>{document.getElementById('linerr').textContent='No se 
    t+=`<div style="margin-top:4px;color:var(--ink2)">${rs.length} recorrido${rs.length>1?'s':''} — ${pinned?'elige uno:':'haz clic para elegir'}</div><div class="r">`+rs.map(r=>`<button data-r="${r}" class="${r===id?'cur':''}" title="${LN[r]?LN[r].nombre:''}">${r}</button>`).join('')+'</div>';
    return t;
   }
-  function mostrar(p){panel.innerHTML=contenido(p);panel.hidden=false;const pw=panel.offsetWidth,ph=panel.offsetHeight;panel.style.left=Math.min(w-pw-4,Math.max(4,p.px+12))+'px';panel.style.top=Math.max(4,(p.py-ph-10<0?p.py+14:p.py-ph-10))+'px';
+  function mostrar(p){panel.innerHTML=contenido(p);panel.hidden=false;const pw=panel.offsetWidth,ph=panel.offsetHeight;const [qx,qy]=tf.apply([p.px,p.py]);panel.style.left=Math.min(w-pw-4,Math.max(4,qx+12))+'px';panel.style.top=Math.max(4,(qy-ph-10<0?qy+14:qy-ph-10))+'px';
    panel.querySelectorAll('button[data-r]').forEach(b=>b.onclick=()=>{if(LN[b.dataset.r]){elegir(b.dataset.r);document.getElementById('linea-card').scrollIntoView({behavior:'smooth'})}});}
-  const svg=plot.tagName==='svg'?plot:plot.querySelector('svg');
-  svg.addEventListener('pointermove',e=>{if(pinned)return;const r=svg.getBoundingClientRect(),sx=w/r.width;const p=buscar((e.clientX-r.left)*sx,(e.clientY-r.top)*sx);if(p)mostrar(p);else panel.hidden=true});
+  svg.addEventListener('pointermove',e=>{if(pinned)return;const r=svg.getBoundingClientRect(),sx=w/r.width;const [mx,my]=tf.invert([(e.clientX-r.left)*sx,(e.clientY-r.top)*sx]);const p=buscar(mx,my);if(p)mostrar(p);else panel.hidden=true});
   svg.addEventListener('pointerleave',e=>{if(!pinned&&!panel.contains(e.relatedTarget))panel.hidden=true});
-  svg.addEventListener('click',e=>{const r=svg.getBoundingClientRect(),sx=w/r.width;const p=buscar((e.clientX-r.left)*sx,(e.clientY-r.top)*sx);if(p){pinned=true;mostrar(p)}else{pinned=false;panel.hidden=true}});
+  svg.addEventListener('click',e=>{const r=svg.getBoundingClientRect(),sx=w/r.width;const [mx,my]=tf.invert([(e.clientX-r.left)*sx,(e.clientY-r.top)*sx]);const p=buscar(mx,my);if(p){pinned=true;mostrar(p)}else{pinned=false;panel.hidden=true}});
  }
  const inp=document.getElementById('lin'), ul=document.getElementById('linlist');
  const norm=t=>t.normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase();
