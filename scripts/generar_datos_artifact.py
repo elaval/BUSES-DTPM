@@ -23,8 +23,7 @@ ini = fin - pd.Timedelta(days=7)
 w = op[op.timestamp > ini]
 agg = w.groupby('timestamp').agg(total=('total_buses', 'sum'), mov=('buses_en_movimiento', 'sum'),
                                  sin=('buses_sin_senal', 'sum'), nsin=('buses_sin_senal', 'count')).reset_index()
-serie = [[t.strftime('%Y-%m-%dT%H:%M'), int(a), int(b), (int(c) if n > 0 else None)]
-         for t, a, b, c, n in zip(agg.timestamp, agg.total, agg.mov, agg.sin, agg.nsin)]
+serie_base = list(zip(agg.timestamp, agg.total, agg.mov, agg.sin, agg.nsin))
 
 u = op[op.timestamp == fin]
 ahora = [{'id': int(r.operador), 'nombre': ops.get(str(int(r.operador)), f'Operador {r.operador}'),
@@ -41,13 +40,35 @@ perfil = [{'h': k, 'historico': int(hist.get(k, 0)), 'semana': (int(rec[k]) if k
           for k in range(24)]
 
 # Flota de referencia: buses distintos (patentes) con señal en los últimos 7 días
-r = pd.read_parquet(local_r if local_r.exists() else BASE + 'data/data/datos_recientes.parquet', columns=['timestamp', 'patente', 'operador'])
+r = pd.read_parquet(local_r if local_r.exists() else BASE + 'data/data/datos_recientes.parquet')
 r7 = r[r.timestamp > r.timestamp.max() - pd.Timedelta(days=7)]
 flota_7d = int(r7.patente.nunique())
 flota_op = r7.groupby('operador').patente.nunique()   # un bus puede aparecer en 2 operadores si cambió de unidad
 
+# Buses operando (se movieron en los últimos ~20 min), solo donde hay capturas cada ~10 min
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from monitor import marcar_operando  # noqa: E402
+m = marcar_operando(r7)
+m['opc'] = m.operando & m.comercial
+m['opt'] = m.operando & ~m.comercial
+m['opc_mov'] = m.opc & (m.estado == 'en_movimiento')
+tsu = pd.Series(sorted(m.timestamp.unique()))
+densa = set(tsu[(tsu.diff().dt.total_seconds() / 60 <= 15) & (tsu.diff(2).dt.total_seconds() / 60 <= 30)])
+opx = m.groupby('timestamp')[['opc', 'opt', 'opc_mov']].sum()
+ult = m[m.timestamp == m.timestamp.max()].groupby('operador')[['opc', 'opt']].sum()
+
 for o_ in ahora:
     o_['flota_7d'] = int(flota_op.get(o_['id'], 0))
+    if fin in densa and o_['id'] in ult.index:
+        o_['op_com'], o_['op_ts'] = int(ult.loc[o_['id'], 'opc']), int(ult.loc[o_['id'], 'opt'])
+
+# serie: [t, total, mov, sin, operando_comercial, operando_ts, operando_comercial_en_movimiento]
+serie = []
+for t, a, b, c, n in serie_base:
+    fila = [t.strftime('%Y-%m-%dT%H:%M'), int(a), int(b), (int(c) if n > 0 else None)]
+    if t in densa and t in opx.index:
+        fila += [int(opx.loc[t, 'opc']), int(opx.loc[t, 'opt']), int(opx.loc[t, 'opc_mov'])]
+    serie.append(fila)
 
 out = {'actualizado': fin.strftime('%Y-%m-%dT%H:%M'), 'capturas_7d': int(len(agg)), 'flota_7d': flota_7d,
        'serie': serie, 'ahora': ahora, 'perfil': perfil}

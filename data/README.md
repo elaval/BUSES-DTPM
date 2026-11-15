@@ -60,6 +60,8 @@ operador × servicio** (`nivel = "servicio"`). Desde el 8 de mayo de 2026.
 | `buses_detenidos` | entero | `total_buses − buses_en_movimiento`. Incluye a los buses sin señal reciente (se mantiene así por comparabilidad histórica) |
 | `pct_en_movimiento` | decimal | `buses_en_movimiento / total_buses × 100` |
 | `buses_sin_senal` | decimal | Buses con último GPS de hace 10 a 190 minutos y **no** en movimiento. **Vacío antes del 15-nov-2026** (la métrica no existía) |
+| `buses_operando` | decimal | Buses **operando**: GPS al día y se movieron en la captura actual o en alguna de las 2 anteriores (~20 min). Incluye a los detenidos en paradero o semáforo; excluye a los encendidos en un terminal sin salir. **Vacío antes del 15-nov-2026** |
+| `buses_operando_comercial` | decimal | Parte de `buses_operando` con servicio comercial (código de servicio que no termina en `TS`). **Vacío antes del 15-nov-2026** |
 
 Muestra (`nivel = "operador"`):
 
@@ -100,6 +102,9 @@ Release.
 | `estado` | texto | `en_movimiento` (`velocidad_max` > 5), `en_parada` (0 < `velocidad_max` ≤ 5) o `detenido` (`velocidad_max` = 0) |
 | `edad_datos_min` | decimal | Minutos entre la última transmisión GPS y la captura (0 a 190) |
 | `senal_reciente` | booleano | `True` si `edad_datos_min` ≤ 10. **Vacío en filas anteriores al 15-nov-2026** |
+| `se_movio` | booleano | GPS al día y, en esta captura, `velocidad_max` > 5 km/h o desplazamiento > 150 m respecto de la captura anterior. **Vacío en filas anteriores al 15-nov-2026** |
+| `operando` | booleano | `se_movio` en esta captura o en alguna de las 2 anteriores (dentro de 25 min). **Vacío en filas anteriores al 15-nov-2026** |
+| `comercial` | booleano | `True` si el código de servicio no termina en `TS`. **Vacío en filas anteriores al 15-nov-2026** |
 
 Muestra:
 
@@ -127,6 +132,17 @@ registros. Algunas variantes (p. ej. `T506e1`) no aparecen en ese archivo.
 | Detenido | `velocidad_max` ≤ 5 km/h y GPS de hace 10 minutos o menos (incluye `en_parada` y `detenido`) |
 | Sin señal reciente | Último GPS de hace más de 10 y hasta 190 minutos, y no en movimiento |
 | Excluido | Último GPS de hace más de 190 minutos. No se guarda: la API también lista buses sin transmitir hace días |
+| **Operando** | GPS al día y se movió (> 5 km/h o > 150 m) en los últimos ~20 min. Transversal a las anteriores: un bus detenido en un paradero puede estar operando |
+
+### Servicios "TS" (sin servicio comercial)
+
+Cada unidad de negocio tiene un código `T<unidad>TS` (p. ej. `T5TS`, `T19TS`). No
+figura en el archivo oficial de servicios ni en el GTFS. Los datos muestran que los
+buses pasan de `TS` a un recorrido al empezar su servicio (sobre todo entre 5 y 7 h)
+y vuelven a `TS` al terminarlo, y que de noche ~40 % de los buses con señal tiene
+este código. Lo interpretamos como **bus sin recorrido asignado**: traslados entre el
+depósito y el inicio o fin de su recorrido, o equipo encendido fuera de servicio. El
+DTPM no publica una definición oficial.
 
 ---
 

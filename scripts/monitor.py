@@ -148,6 +148,42 @@ def parsear_posiciones(data):
     return pd.DataFrame(registros) if registros else pd.DataFrame()
 
 
+# --- Buses operando -------------------------------------------------------
+# Un bus está "operando" si tiene GPS al día (<= UMBRAL_SENAL_MIN) y se movió en
+# la captura actual o en alguna de las 2 anteriores (~20 min): iba a más de 5 km/h
+# o se desplazó más de DESPLAZAMIENTO_MIN_M desde la captura previa. Así cuenta el
+# bus detenido en un paradero o semáforo, pero no el que está encendido en el
+# terminal sin salir. Los servicios cuyo código termina en "TS" no tienen servicio
+# comercial asignado (p. ej. trayectos hacia o desde el terminal).
+DESPLAZAMIENTO_MIN_M = 150
+VENTANA_OPERANDO_MIN = 25
+
+
+def marcar_operando(df):
+    """Agrega columnas se_movio, operando y comercial a un DataFrame con varias capturas."""
+    import numpy as np
+    df = df.sort_values(['patente', 'timestamp']).copy()
+    if 'senal_reciente' in df:
+        fresh = df['senal_reciente'].astype(str).eq('True') | (df['senal_reciente'] == True)  # noqa: E712
+        fresh = fresh | (df['senal_reciente'].isna() & (df['edad_datos_min'] <= UMBRAL_SENAL_MIN))
+    else:
+        fresh = df['edad_datos_min'] <= UMBRAL_SENAL_MIN
+    g = df.groupby('patente')
+    kx = np.cos(np.radians(-33.45)) * 111320
+    dt = (df['timestamp'] - g['timestamp'].shift()).dt.total_seconds() / 60
+    desp = np.hypot((df['longitud'] - g['longitud'].shift()) * kx, (df['latitud'] - g['latitud'].shift()) * 110540)
+    se_movio = fresh & ((df['estado'] == 'en_movimiento') | ((desp > DESPLAZAMIENTO_MIN_M) & (dt <= 15)))
+    df['se_movio'] = se_movio.astype(bool)
+    operando = df['se_movio'].copy()
+    for k in (1, 2):
+        prev = df.groupby('patente')['se_movio'].shift(k).fillna(False).astype(bool)
+        dtk = (df['timestamp'] - df.groupby('patente')['timestamp'].shift(k)).dt.total_seconds() / 60
+        operando = operando | (prev & (dtk <= VENTANA_OPERANDO_MIN))
+    df['operando'] = (fresh & operando).astype(bool)
+    df['comercial'] = ~df['servicio'].fillna('').str.endswith('TS')
+    return df
+
+
 def calcular_metricas(df):
     """
     Calcula métricas agregadas por operador y servicio
@@ -161,12 +197,17 @@ def calcular_metricas(df):
     # movimiento (los pocos buses con GPS algo antiguo pero velocidad > 5 km/h
     # se cuentan solo como en movimiento).
     df = df.assign(sin_senal=(~df['senal_reciente'].astype(bool)) & (df['estado'] != 'en_movimiento'))
+    if 'operando' not in df:
+        df = marcar_operando(df)
+    df = df.assign(operando_comercial=df['operando'] & df['comercial'])
     
     # Métricas por operador
     metricas_operador = df.groupby('operador').agg(
         total_buses=('patente', 'count'),
         buses_en_movimiento=('estado', lambda x: (x == 'en_movimiento').sum()),
         buses_sin_senal=('sin_senal', 'sum'),
+        buses_operando=('operando', 'sum'),
+        buses_operando_comercial=('operando_comercial', 'sum'),
     ).reset_index()
     metricas_operador['buses_detenidos'] = (
         metricas_operador['total_buses'] - metricas_operador['buses_en_movimiento']
@@ -180,6 +221,8 @@ def calcular_metricas(df):
         total_buses=('patente', 'count'),
         buses_en_movimiento=('estado', lambda x: (x == 'en_movimiento').sum()),
         buses_sin_senal=('sin_senal', 'sum'),
+        buses_operando=('operando', 'sum'),
+        buses_operando_comercial=('operando_comercial', 'sum'),
     ).reset_index()
     metricas_servicio['buses_detenidos'] = (
         metricas_servicio['total_buses'] - metricas_servicio['buses_en_movimiento']
@@ -306,6 +349,21 @@ def generar_reporte():
         return False
     
     print(f"✅ {len(df_buses)} buses procesados")
+
+    # Marcar buses operando usando las capturas de los últimos ~30 minutos
+    if ARCHIVO_RECIENTES.exists():
+        previos = pd.read_parquet(ARCHIVO_RECIENTES)
+        previos = previos[previos['timestamp'] >= df_buses['timestamp'].iloc[0] - timedelta(minutes=35)]
+        previos = previos[previos['timestamp'] < df_buses['timestamp'].iloc[0]]
+        cols = ['timestamp', 'patente', 'latitud', 'longitud', 'estado', 'edad_datos_min', 'senal_reciente', 'servicio']
+        conjunto = pd.concat([previos[[c for c in cols if c in previos]], df_buses[cols]], ignore_index=True)
+    else:
+        conjunto = df_buses
+    marcado = marcar_operando(conjunto)
+    marcado = marcado[marcado['timestamp'] == df_buses['timestamp'].iloc[0]]
+    df_buses = df_buses.merge(marcado[['patente', 'se_movio', 'operando', 'comercial']], on='patente', how='left')
+    print(f"🚍 {int(df_buses['operando'].sum())} buses operando "
+          f"({int((df_buses['operando'] & df_buses['comercial']).sum())} con servicio comercial)")
     
     # Calcular métricas
     print("📈 Calculando métricas...")
