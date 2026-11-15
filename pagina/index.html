@@ -35,7 +35,6 @@ footer{color:var(--muted);font-size:12px;margin-top:24px}
 .combo li b{display:inline-block;min-width:52px}
 .combo li[aria-selected="true"],.combo li:hover{background:var(--bg)}
 .combo li span{color:var(--ink2)}
-#linsel{font:inherit;font-size:13px;padding:6px 8px;border-radius:8px;border:1px solid var(--border);background:var(--surface);color:var(--ink);max-width:340px}
 .defs summary{cursor:pointer;list-style:revert}
 .deftab td{vertical-align:top;font-size:13px} .deftab td:first-child{white-space:nowrap}
 .deftab .sw{vertical-align:-1px}
@@ -114,7 +113,6 @@ figure{margin:0}
 <input id="lin" value="503" autocomplete="off" role="combobox" aria-expanded="false" aria-controls="linlist" placeholder="Escribe número o destino…">
 <ul id="linlist" role="listbox" hidden></ul>
 </div>
-<select id="linsel" aria-label="Lista de recorridos"></select>
 <span id="linerr" style="font-size:13px;color:#d03b3b"></span>
 </div>
 <div id="linhead"></div>
@@ -230,9 +228,6 @@ cargar('lineas').catch(e=>{document.getElementById('linerr').textContent='No se 
  const LN=D.lineas, RED=D.red.map(([la,lo,n,rs])=>({la,lo,n,rs}));
  let lmS=null, lmP='pk';
  const ids=Object.keys(LN).sort((a,b)=>a.localeCompare(b,'es',{numeric:true}));
- const sel=document.getElementById('linsel');
- const byOp=d3.groups(ids,i=>LN[i].operador||'Sin operador').sort((a,b)=>a[0].localeCompare(b[0],'es'));
- sel.innerHTML=byOp.map(([op,arr])=>`<optgroup label="${op}">`+arr.map(i=>`<option value="${i}">${i} · ${LN[i].nombre}</option>`).join('')+'</optgroup>').join('');
  const med=a=>{const v=a.filter(x=>x!=null).sort((x,y)=>x-y);return v.length?v[Math.floor(v.length/2)]:null};
  const cc=n=>{const [a,b='']=n.split(' / ');const x=b.replace('esq. ','').trim();return /^parada/i.test(a)?['',x]:[a.trim().replace(/^(Avenida|Avda\.?|Av)\s+/,'Av. '),x]};
  const nomTramo=(n1,n2)=>{const [c1,x1]=cc(n1),[c2,x2]=cc(n2);const c=c1||c2;return c?`${c}, entre ${x1||n1} y ${x2||n2}`:`entre ${x1} y ${x2}`};
@@ -337,7 +332,7 @@ cargar('lineas').catch(e=>{document.getElementById('linerr').textContent='No se 
  const inp=document.getElementById('lin'), ul=document.getElementById('linlist');
  const norm=t=>t.normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase();
  let opts=[], act=-1, cur='503';
- function elegir(id){if(!LN[id])return; cur=id; inp.value=`${id} · ${LN[id].nombre}`; sel.value=id; cerrar(); show(id)}
+ function elegir(id){if(!LN[id])return; cur=id; inp.value=`${id} · ${LN[id].nombre}`; cerrar(); show(id)}
  function cerrar(){ul.hidden=true;inp.setAttribute('aria-expanded','false');act=-1}
  function abrir(q){
   const nq=norm(q.trim());
@@ -357,7 +352,6 @@ cargar('lineas').catch(e=>{document.getElementById('linerr').textContent='No se 
  });
  ul.addEventListener('mousedown',e=>{const li=e.target.closest('li[data-id]');if(li){e.preventDefault();elegir(li.dataset.id);inp.blur()}});
  inp.addEventListener('blur',()=>setTimeout(()=>{if(!ul.hidden){cerrar();inp.value=`${cur} · ${LN[cur].nombre}`}},120));
- sel.addEventListener('change',()=>elegir(sel.value));
  const h0=decodeURIComponent((location.hash.match(/^#linea-(.+)$/)||[])[1]||'');
  elegir(LN[h0]?h0:(LN['503']?'503':ids[0]));
 });
