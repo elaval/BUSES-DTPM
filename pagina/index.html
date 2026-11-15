@@ -39,6 +39,10 @@ footer{color:var(--muted);font-size:12px;margin-top:24px}
 .defs summary{cursor:pointer;list-style:revert}
 .deftab td{vertical-align:top;font-size:13px} .deftab td:first-child{white-space:nowrap}
 .deftab .sw{vertical-align:-1px}
+#lmpanel{position:absolute;z-index:15;max-width:300px;background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:8px 10px;font-size:12px;box-shadow:0 6px 20px rgba(0,0,0,.15);pointer-events:auto}
+#lmpanel .t{font-weight:600;margin-bottom:4px} #lmpanel .r{display:flex;flex-wrap:wrap;gap:4px;margin-top:4px}
+#lmpanel button{font:inherit;font-size:12px;padding:2px 7px;border-radius:6px;border:1px solid var(--border);background:var(--bg);color:var(--ink);cursor:pointer}
+#lmpanel button.cur{border-color:var(--s1);color:var(--s1);font-weight:600}
 figure{margin:0}
 </style>
 </head>
@@ -107,6 +111,14 @@ figure{margin:0}
 </div>
 <div id="linhead"></div>
 <div class="kpis" id="linkpis"></div>
+<h2 style="font-size:15px">Mapa del recorrido</h2>
+<p class="note">Paraderos del recorrido coloreados según la velocidad de esta línea. En gris, el resto de la red: pasa el cursor sobre cualquier paradero para ver qué recorridos lo atienden y haz clic en uno para cambiar de línea.</p>
+<div style="display:flex;gap:16px;flex-wrap:wrap;align-items:center">
+<div class="tabs" id="lmsent"></div>
+<div class="tabs" id="lmper"><button data-p="pk" class="on">Peor punta</button><button data-p="am">Punta mañana</button><button data-p="pm">Punta tarde</button><button data-p="va">Valle</button></div>
+</div>
+<div id="lmleg"></div>
+<div id="linmapa" style="position:relative"></div>
 <h2 style="font-size:15px">Buses en servicio por hora</h2>
 <p class="note">Mediana de buses del recorrido en movimiento o en paradero, por hora de un día hábil.</p>
 <div id="linbuses"></div>
@@ -189,7 +201,9 @@ document.getElementById('tramos').innerHTML='<table><thead><tr><th>Tramo</th><th
 document.getElementById('foot').innerHTML=`Fuente: API de posiciones del DTPM, capturada por el repo <a href="https://github.com/elaval/BUSES-DTPM" style="color:inherit">elaval/BUSES-DTPM</a>. Recorridos y paraderos: GTFS oficial del DTPM (julio 2026). Las secciones de flota se actualizan con cada refresco de esta página; el análisis por paradero corresponde a ${S.periodo}.`;
 
 // ===== análisis por línea =====
-cargar('lineas').catch(e=>{document.getElementById('linerr').textContent='No se pudo cargar el análisis por línea: '+e.message;throw e}).then(LN=>{
+cargar('lineas').catch(e=>{document.getElementById('linerr').textContent='No se pudo cargar el análisis por línea: '+e.message;throw e}).then(D=>{
+ const LN=D.lineas, RED=D.red.map(([la,lo,n,rs])=>({la,lo,n,rs}));
+ let lmS=null, lmP='pk';
  const ids=Object.keys(LN).sort((a,b)=>a.localeCompare(b,'es',{numeric:true}));
  const sel=document.getElementById('linsel');
  const byOp=d3.groups(ids,i=>LN[i].operador||'Sin operador').sort((a,b)=>a[0].localeCompare(b[0],'es'));
@@ -205,6 +219,10 @@ cargar('lineas').catch(e=>{document.getElementById('linerr').textContent='No se 
   const vp=med(all.map(r=>r[2]==null&&r[3]==null?null:Math.min(r[2]??99,r[3]??99))), vv=med(all.map(r=>r[4]));
   const km=Object.values(L.sentidos).map(s=>s.paraderos.at(-1)[0]);
   document.getElementById('linkpis').innerHTML=[['Buses en punta',pk,'máximo 7–9 h / 18–20 h'],['Buses en valle',vl,'mediana 11–16 h'],['Velocidad en punta',vp==null?'—':vp.toFixed(1)+' km/h','mediana de paraderos, peor punta'],['Velocidad en valle',vv==null?'—':vv.toFixed(1)+' km/h','mediana de paraderos'],['Largo aprox.',km.map(k=>k.toFixed(1)).join(' / ')+' km','por sentido']].map(([l,v,d])=>`<div class="kpi"><div class="l">${l}</div><div class="v" style="font-size:22px">${v}</div><div class="d">${d}</div></div>`).join('');
+  lmS=Object.keys(L.sentidos)[0];
+  document.getElementById('lmsent').innerHTML=Object.entries(L.sentidos).map(([d,S2])=>`<button data-s="${d}" class="${d===lmS?'on':''}">Hacia ${S2.destino}</button>`).join('');
+  document.querySelectorAll('#lmsent button').forEach(b=>b.onclick=()=>{lmS=b.dataset.s;document.querySelectorAll('#lmsent button').forEach(x=>x.classList.toggle('on',x===b));mapaLinea(id)});
+  mapaLinea(id);
   const eb=document.getElementById('linbuses'); eb.innerHTML='';
   eb.append(Plot.plot({width:W('linbuses'),height:180,marginLeft:40,style:{background:'transparent',fontSize:'12px'},x:{label:'hora',tickFormat:d=>d+'h',padding:0.15},y:{grid:true,label:'buses'},
    marks:[Plot.barY(bh.map((v,h)=>({h,v})),{x:'h',y:'v',fill:C.s1,rx:3,tip:true,title:d=>`${d.h}:00 · ${d.v} buses`}),Plot.ruleY([0])]}));
@@ -224,6 +242,50 @@ cargar('lineas').catch(e=>{document.getElementById('linerr').textContent='No se 
     color:{domain:['Valle','Punta mañana','Punta tarde'],range:[C.ctx,C.s1,C.s2]},
     marks:[Plot.lineY(lg,{x:'km',y:'v',stroke:'k',strokeWidth:2,}),Plot.tip(lg,Plot.pointer({x:'km',y:'v',title:q=>`${q.n}\nkm ${q.km.toFixed(1)} · ${q.k}: ${q.raw.toFixed(1)} km/h en este paradero`}))]}));
   }
+ }
+ document.querySelectorAll('#lmper button').forEach(b=>b.onclick=()=>{lmP=b.dataset.p;document.querySelectorAll('#lmper button').forEach(x=>x.classList.toggle('on',x===b));mapaLinea(cur)});
+ const seqL=['#cde2fb','#86b6ef','#3987e5','#1c5cab','#0d366b'], binL=v=>v>=18?0:v>=14?1:v>=11?2:v>=8?3:4;
+ function mapaLinea(id){
+  const L=LN[id], el=document.getElementById('linmapa'); el.innerHTML='';
+  const P2=L.sentidos[lmS].paraderos.map(r=>({km:r[0],n:r[1],am:r[2],pm:r[3],va:r[4],la:r[5],lo:r[6]}));
+  const val=r=>lmP==='pk'?((r.am==null&&r.pm==null)?null:Math.min(r.am??99,r.pm??99)):r[lmP];
+  P2.forEach(r=>{r.v=val(r)});
+  const lab={pk:'peor punta',am:'punta mañana',pm:'punta tarde',va:'valle'}[lmP];
+  document.getElementById('lmleg').innerHTML='<div class="legend">Km/h de esta línea en '+lab+': '+['18 o más','14–18','11–14','8–11','menos de 8'].map((l,i)=>`<span><i class="sw" style="background:${seqL[i]}"></i>${l}</span>`).join('')+'<span><i class="sw" style="background:transparent;border:1.5px solid var(--muted)"></i>sin datos</span></div>';
+  const w=W('linmapa'), h=Math.round(Math.min(w*0.85,640));
+  const lats=P2.map(r=>r.la), lons=P2.map(r=>r.lo), pad=0.012;
+  const box={type:'MultiPoint',coordinates:[[d3.min(lons)-pad,d3.min(lats)-pad],[d3.max(lons)+pad,d3.max(lats)+pad]]};
+  const proj=d3.geoMercator().fitExtent([[10,10],[w-10,h-10]],box);
+  const [x0,y0]=proj.invert([0,h]), [x1,y1]=proj.invert([w,0]);
+  const vis=RED.filter(r=>r.lo>=x0&&r.lo<=x1&&r.la>=y0&&r.la<=y1);
+  const plot=Plot.plot({width:w,height:h,style:{background:'transparent',fontSize:'11px'},projection:()=>proj,
+   marks:[Plot.geo(S.comunas,{stroke:C.muted,strokeWidth:0.6,strokeOpacity:0.6,fill:'none'}),
+    Plot.text(S.comunas.features,Plot.centroid({text:d=>d.properties.n,fill:C.muted,fontSize:10,stroke:'var(--surface)',strokeWidth:3,paintOrder:'stroke'})),
+    Plot.dot(vis,{x:'lo',y:'la',r:1.8,fill:C.ctx,fillOpacity:0.7}),
+    Plot.line(P2,{x:'lo',y:'la',stroke:C.muted,strokeWidth:1.5,strokeOpacity:0.6}),
+    Plot.dot(P2.filter(r=>r.v==null),{x:'lo',y:'la',r:4,stroke:C.muted,strokeWidth:1.2,fill:'var(--surface)'}),
+    Plot.dot(P2.filter(r=>r.v!=null),{x:'lo',y:'la',r:5,fill:r=>seqL[binL(r.v)],stroke:'var(--surface)',strokeWidth:1}),
+    Plot.text([P2[0],P2.at(-1)],{x:'lo',y:'la',text:(d,i)=>i?'Fin':'Inicio',dy:-12,fontWeight:600,fill:'currentColor',stroke:'var(--surface)',strokeWidth:3,paintOrder:'stroke'})]});
+  el.append(plot);
+  const panel=document.createElement('div'); panel.id='lmpanel'; panel.hidden=true; el.append(panel);
+  const pts=[...P2.map(r=>({...r,mine:true})),...vis.map(r=>({...r,mine:false}))].map(r=>{const [px,py]=proj([r.lo,r.la]);return {...r,px,py}});
+  const qtM=d3.quadtree(pts.filter(d=>d.mine),d=>d.px,d=>d.py), qtR=d3.quadtree(pts.filter(d=>!d.mine),d=>d.px,d=>d.py);
+  const buscar=(x,y)=>qtM.find(x,y,10)||qtR.find(x,y,10);
+  let pinned=false;
+  function contenido(p){
+   const red=RED.find(r=>Math.abs(r.la-p.la)<1e-5&&Math.abs(r.lo-p.lo)<1e-5);
+   const rs=red?red.rs:[id];
+   let t=`<div class="t">${p.n}</div>`;
+   if(p.mine) t+=`<div>Línea ${id}: ${[['Punta mañana',p.am],['Punta tarde',p.pm],['Valle',p.va]].map(([k,v])=>`${k} ${v==null?'—':v.toFixed(1)+' km/h'}`).join(' · ')}</div>`;
+   t+=`<div style="margin-top:4px;color:var(--ink2)">${rs.length} recorrido${rs.length>1?'s':''} — ${pinned?'elige uno:':'haz clic para elegir'}</div><div class="r">`+rs.map(r=>`<button data-r="${r}" class="${r===id?'cur':''}" title="${LN[r]?LN[r].nombre:''}">${r}</button>`).join('')+'</div>';
+   return t;
+  }
+  function mostrar(p){panel.innerHTML=contenido(p);panel.hidden=false;const pw=panel.offsetWidth,ph=panel.offsetHeight;panel.style.left=Math.min(w-pw-4,Math.max(4,p.px+12))+'px';panel.style.top=Math.max(4,(p.py-ph-10<0?p.py+14:p.py-ph-10))+'px';
+   panel.querySelectorAll('button[data-r]').forEach(b=>b.onclick=()=>{if(LN[b.dataset.r]){elegir(b.dataset.r);document.getElementById('linea-card').scrollIntoView({behavior:'smooth'})}});}
+  const svg=plot.tagName==='svg'?plot:plot.querySelector('svg');
+  svg.addEventListener('pointermove',e=>{if(pinned)return;const r=svg.getBoundingClientRect(),sx=w/r.width;const p=buscar((e.clientX-r.left)*sx,(e.clientY-r.top)*sx);if(p)mostrar(p);else panel.hidden=true});
+  svg.addEventListener('pointerleave',e=>{if(!pinned&&!panel.contains(e.relatedTarget))panel.hidden=true});
+  svg.addEventListener('click',e=>{const r=svg.getBoundingClientRect(),sx=w/r.width;const p=buscar((e.clientX-r.left)*sx,(e.clientY-r.top)*sx);if(p){pinned=true;mostrar(p)}else{pinned=false;panel.hidden=true}});
  }
  const inp=document.getElementById('lin'), ul=document.getElementById('linlist');
  const norm=t=>t.normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase();
