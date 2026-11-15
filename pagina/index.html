@@ -28,7 +28,14 @@ h2{font-size:17px;font-weight:600;margin:0 0 4px}
 .tabs button.on{border-color:var(--ink2);font-weight:600}
 table{width:100%;border-collapse:collapse;font-size:13px} th,td{text-align:left;padding:7px 8px;border-bottom:1px solid var(--border)} th{color:var(--ink2);font-weight:500} td.n{text-align:right}
 footer{color:var(--muted);font-size:12px;margin-top:24px}
-.plot-d6a7b5-figure{margin:0}
+.combo{position:relative}
+.combo input{font:inherit;padding:6px 10px;border-radius:8px;border:1px solid var(--border);background:var(--surface);color:var(--ink);width:280px}
+.combo ul{position:absolute;z-index:20;left:0;top:calc(100% + 4px);width:380px;max-height:320px;overflow:auto;margin:0;padding:4px;list-style:none;background:var(--surface);border:1px solid var(--border);border-radius:8px;box-shadow:0 6px 20px rgba(0,0,0,.12)}
+.combo li{padding:6px 8px;border-radius:6px;cursor:pointer;font-size:13px}
+.combo li b{display:inline-block;min-width:52px}
+.combo li[aria-selected="true"],.combo li:hover{background:var(--bg)}
+.combo li span{color:var(--ink2)}
+#linsel{font:inherit;font-size:13px;padding:6px 8px;border-radius:8px;border:1px solid var(--border);background:var(--surface);color:var(--ink);max-width:340px}
 figure{margin:0}
 </style>
 </head>
@@ -74,8 +81,11 @@ figure{margin:0}
 <p class="note">Elige un recorrido para ver cuántos buses opera por hora y cómo cambia su velocidad a lo largo del trazado (días hábiles, may–nov 2026).</p>
 <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin:4px 0 12px">
 <label for="lin" style="font-size:13px;color:var(--ink2)">Recorrido</label>
-<input id="lin" list="linlist" value="503" style="font:inherit;padding:6px 10px;border-radius:8px;border:1px solid var(--border);background:var(--surface);color:var(--ink);width:120px">
-<datalist id="linlist"></datalist>
+<div class="combo">
+<input id="lin" value="503" autocomplete="off" role="combobox" aria-expanded="false" aria-controls="linlist" placeholder="Escribe número o destino…">
+<ul id="linlist" role="listbox" hidden></ul>
+</div>
+<select id="linsel" aria-label="Lista de recorridos"></select>
 <span id="linerr" style="font-size:13px;color:#d03b3b"></span>
 </div>
 <div id="linhead"></div>
@@ -99,7 +109,14 @@ figure{margin:0}
 const fmt=d3.format(",d"), es=d3.timeFormatLocale({dateTime:"%A, %e de %B de %Y, %X",date:"%d/%m/%Y",time:"%H:%M:%S",periods:["AM","PM"],days:["domingo","lunes","martes","miércoles","jueves","viernes","sábado"],shortDays:["dom","lun","mar","mié","jue","vie","sáb"],months:["enero","febrero","marzo","abril","mayo","junio","julio","agosto","septiembre","octubre","noviembre","diciembre"],shortMonths:["ene","feb","mar","abr","may","jun","jul","ago","sep","oct","nov","dic"]});
 const css=n=>getComputedStyle(document.documentElement).getPropertyValue(n).trim();
 const W=el=>Math.max(300,document.getElementById(el).clientWidth);
-Promise.all([fetch('data_vivo.json').then(r=>r.json()),fetch('data_estatico.json').then(r=>r.json())]).then(([V,S])=>{
+async function cargar(n){
+ if(window.DATOS&&window.DATOS[n]) return window.DATOS[n];
+ const r=await fetch(n+'.json',{cache:'no-store'});
+ if(!r.ok) throw new Error(`${n}.json respondió HTTP ${r.status}`);
+ const t=await r.text();
+ try{return JSON.parse(t)}catch(e){throw new Error(`${n}.json no se encontró (el servidor devolvió una página en vez de datos)`)}
+}
+Promise.all([cargar('data_vivo'),cargar('data_estatico')]).then(([V,S])=>{
 const C={s1:css('--s1'),s2:css('--s2'),s3:css('--s3'),ctx:css('--ctx'),grid:css('--grid'),muted:css('--muted')};
 const parse=d3.timeParse('%Y-%m-%dT%H:%M'); const act=parse(V.actualizado);
 document.getElementById('sub').textContent=`Transporte público metropolitano · última captura: ${es.format('%e de %B, %H:%M')(act)} (hora de Chile)`;
@@ -155,9 +172,11 @@ document.getElementById('tramos').innerHTML='<table><thead><tr><th>Tramo</th><th
 document.getElementById('foot').innerHTML=`Fuente: API de posiciones del DTPM, capturada por el repo <a href="https://github.com/elaval/BUSES-DTPM" style="color:inherit">elaval/BUSES-DTPM</a>. Recorridos y paraderos: GTFS oficial del DTPM (julio 2026). Las secciones de flota se actualizan con cada refresco de esta página; el análisis por paradero corresponde a ${S.periodo}.`;
 
 // ===== análisis por línea =====
-fetch('lineas.json').then(r=>r.json()).then(LN=>{
+cargar('lineas').catch(e=>{document.getElementById('linerr').textContent='No se pudo cargar el análisis por línea: '+e.message;throw e}).then(LN=>{
  const ids=Object.keys(LN).sort((a,b)=>a.localeCompare(b,'es',{numeric:true}));
- document.getElementById('linlist').innerHTML=ids.map(i=>`<option value="${i}">${i} · ${LN[i].nombre}</option>`).join('');
+ const sel=document.getElementById('linsel');
+ const byOp=d3.groups(ids,i=>LN[i].operador||'Sin operador').sort((a,b)=>a[0].localeCompare(b[0],'es'));
+ sel.innerHTML=byOp.map(([op,arr])=>`<optgroup label="${op}">`+arr.map(i=>`<option value="${i}">${i} · ${LN[i].nombre}</option>`).join('')+'</optgroup>').join('');
  const med=a=>{const v=a.filter(x=>x!=null).sort((x,y)=>x-y);return v.length?v[Math.floor(v.length/2)]:null};
  function show(id){
   const L=LN[id]; const err=document.getElementById('linerr');
@@ -189,13 +208,34 @@ fetch('lineas.json').then(r=>r.json()).then(LN=>{
     marks:[Plot.lineY(lg,{x:'km',y:'v',stroke:'k',strokeWidth:2,}),Plot.tip(lg,Plot.pointer({x:'km',y:'v',title:q=>`${q.n}\nkm ${q.km.toFixed(1)} · ${q.k}: ${q.raw.toFixed(1)} km/h en este paradero`}))]}));
   }
  }
- const inp=document.getElementById('lin');
- const h0=(location.hash.match(/^#linea-(.+)$/)||[])[1]; if(h0&&LN[decodeURIComponent(h0)]) inp.value=decodeURIComponent(h0);
- inp.addEventListener('change',()=>show(inp.value.trim().split(' ')[0]));
- inp.addEventListener('input',()=>{const v=inp.value.trim(); if(LN[v]) show(v)});
- show(inp.value.trim());
+ const inp=document.getElementById('lin'), ul=document.getElementById('linlist');
+ const norm=t=>t.normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase();
+ let opts=[], act=-1, cur='503';
+ function elegir(id){if(!LN[id])return; cur=id; inp.value=`${id} · ${LN[id].nombre}`; sel.value=id; cerrar(); show(id)}
+ function cerrar(){ul.hidden=true;inp.setAttribute('aria-expanded','false');act=-1}
+ function abrir(q){
+  const nq=norm(q.trim());
+  opts=nq?ids.filter(i=>norm(i).startsWith(nq)).concat(ids.filter(i=>!norm(i).startsWith(nq)&&norm(i+' '+LN[i].nombre+' '+(LN[i].operador||'')).includes(nq))):ids;
+  ul.innerHTML=opts.length?opts.slice(0,400).map((i,k)=>`<li role="option" data-id="${i}" aria-selected="${k===act}"><b>${i}</b><span>${LN[i].nombre}</span></li>`).join(''):'<li style="cursor:default;color:var(--ink2)">Sin coincidencias</li>';
+  ul.hidden=false;inp.setAttribute('aria-expanded','true');
+ }
+ function marcar(){[...ul.children].forEach((li,k)=>li.setAttribute('aria-selected',k===act));const li=ul.children[act];if(li)li.scrollIntoView({block:'nearest'})}
+ inp.addEventListener('focus',()=>{inp.select();abrir('')});
+ inp.addEventListener('input',()=>{act=0;abrir(inp.value);marcar()});
+ inp.addEventListener('keydown',e=>{
+  if(ul.hidden&&(e.key==='ArrowDown'||e.key==='Enter')){abrir('');}
+  if(e.key==='ArrowDown'){e.preventDefault();act=Math.min(opts.length-1,act+1);marcar()}
+  else if(e.key==='ArrowUp'){e.preventDefault();act=Math.max(0,act-1);marcar()}
+  else if(e.key==='Enter'){e.preventDefault();const id=opts[Math.max(0,act)];if(id)elegir(id);inp.blur()}
+  else if(e.key==='Escape'){elegir(cur);inp.blur()}
+ });
+ ul.addEventListener('mousedown',e=>{const li=e.target.closest('li[data-id]');if(li){e.preventDefault();elegir(li.dataset.id);inp.blur()}});
+ inp.addEventListener('blur',()=>setTimeout(()=>{if(!ul.hidden){cerrar();inp.value=`${cur} · ${LN[cur].nombre}`}},120));
+ sel.addEventListener('change',()=>elegir(sel.value));
+ const h0=decodeURIComponent((location.hash.match(/^#linea-(.+)$/)||[])[1]||'');
+ elegir(LN[h0]?h0:(LN['503']?'503':ids[0]));
 });
-}).catch(e=>{document.getElementById('sub').textContent='No se pudieron cargar los datos: '+e});
+}).catch(e=>{document.getElementById('sub').textContent='No se pudieron cargar los datos: '+(e.message||e)});
 </script>
 </body>
 </html>
