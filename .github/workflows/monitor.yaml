@@ -63,12 +63,18 @@ jobs:
         PUB=$(mktemp -d)
         mkdir -p "$PUB/data"
         cp data/metricas_historicas.parquet data/datos_recientes.parquet "$PUB/data/"
+        # Dashboard (GitHub Pages sirve la raíz de esta rama): página + datos livianos
+        cp pagina/index.html pagina/data_estatico.json "$PUB/"
+        python scripts/generar_datos_artifact.py "$PUB/data_vivo.json"
+        touch "$PUB/.nojekyll"
         cat > "$PUB/README.md" <<'TXT'
         # Datos del Monitor de Flota DTPM
 
         Rama generada automáticamente por GitHub Actions. Contiene solo la
         versión más reciente de los datos (un único commit, sin historial).
         El código está en la rama `main`.
+
+        También sirve el dashboard en GitHub Pages (index.html + data_vivo.json).
         TXT
         cd "$PUB"
         git init -q -b data

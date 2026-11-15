@@ -1,0 +1,141 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Monitor de Flota DTPM</title>
+<script src="https://cdn.jsdelivr.net/npm/d3@7"></script>
+<script src="https://cdn.jsdelivr.net/npm/@observablehq/plot@0.6"></script>
+<style>
+:root{color-scheme:light;--bg:#f9f9f7;--surface:#fcfcfb;--ink:#0b0b0b;--ink2:#52514e;--muted:#898781;--grid:#e1e0d9;--border:rgba(11,11,11,.10);
+--s1:#2a78d6;--s2:#eb6834;--s3:#1baf7a;--ctx:#b4b2a9}
+@media (prefers-color-scheme:dark){:root{color-scheme:dark;--bg:#0d0d0d;--surface:#1a1a19;--ink:#f0efec;--ink2:#c3c2b7;--muted:#898781;--grid:#2c2c2a;--border:rgba(255,255,255,.10);--s1:#3987e5;--s2:#d95926;--s3:#199e70;--ctx:#5f5e5a}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.5 system-ui,-apple-system,"Segoe UI",sans-serif;font-variant-numeric:tabular-nums}
+main{max-width:1100px;margin:0 auto;padding:28px 20px 48px}
+h1{font-size:24px;font-weight:600;margin:0 0 4px}
+h2{font-size:17px;font-weight:600;margin:0 0 4px}
+.sub{color:var(--ink2);margin:0 0 20px}
+.kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:12px;margin-bottom:20px}
+.kpi{background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:14px 16px}
+.kpi .l{font-size:13px;color:var(--ink2)} .kpi .v{font-size:28px;font-weight:600;margin-top:2px} .kpi .d{font-size:12px;color:var(--muted)}
+.card{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:18px 18px 12px;margin-bottom:16px}
+.card p.note{color:var(--ink2);font-size:13px;margin:0 0 10px}
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:16px} @media (max-width:820px){.grid2{grid-template-columns:1fr}}
+.legend{display:flex;flex-wrap:wrap;gap:14px;font-size:12px;color:var(--ink2);margin:4px 0 6px}
+.legend span{display:inline-flex;align-items:center;gap:5px} .sw{width:10px;height:10px;border-radius:2px;display:inline-block}
+.tabs{display:flex;gap:6px;margin:6px 0 8px} .tabs button{font:inherit;font-size:13px;padding:5px 12px;border-radius:8px;border:1px solid var(--border);background:transparent;color:var(--ink);cursor:pointer}
+.tabs button.on{border-color:var(--ink2);font-weight:600}
+table{width:100%;border-collapse:collapse;font-size:13px} th,td{text-align:left;padding:7px 8px;border-bottom:1px solid var(--border)} th{color:var(--ink2);font-weight:500} td.n{text-align:right}
+footer{color:var(--muted);font-size:12px;margin-top:24px}
+.plot-d6a7b5-figure{margin:0}
+figure{margin:0}
+</style>
+</head>
+<body>
+<main>
+<h1>Monitor de Flota DTPM Santiago</h1>
+<p class="sub" id="sub">Cargando datos…</p>
+
+<div class="kpis" id="kpis"></div>
+
+<div class="card">
+<h2>Últimos 7 días</h2>
+<p class="note">Buses detectados en cada captura de toda la ciudad. Hasta el 15 de noviembre había solo unas pocas capturas al día (puntos sueltos); desde entonces hay una cada 10 minutos (líneas continuas).</p>
+<div class="legend"><span><i class="sw" style="background:var(--ctx)"></i>Total con GPS</span><span><i class="sw" style="background:var(--s1)"></i>En movimiento</span><span><i class="sw" style="background:var(--s2)"></i>Sin señal reciente</span></div>
+<div id="serie"></div>
+</div>
+
+<div class="grid2">
+<div class="card">
+<h2>Día hábil típico</h2>
+<p class="note">Buses en movimiento por hora (mediana).</p>
+<div class="legend"><span><i class="sw" style="background:var(--ctx)"></i>Histórico may–nov</span><span><i class="sw" style="background:var(--s1)"></i>Últimos 7 días</span></div>
+<div id="perfil"></div>
+</div>
+<div class="card">
+<h2>Flota por operador, última captura</h2>
+<p class="note" id="opnote"></p>
+<div class="legend"><span><i class="sw" style="background:var(--s1)"></i>En movimiento</span><span><i class="sw" style="background:var(--s3)"></i>Detenido</span><span><i class="sw" style="background:var(--s2)"></i>Sin señal reciente</span></div>
+<div id="ops"></div>
+</div>
+</div>
+
+<div class="card">
+<h2>Velocidad de buses por paradero</h2>
+<p class="note" id="mapnote"></p>
+<div class="tabs"><button id="tp" class="on">Velocidad en punta</button><button id="tc">Caída punta vs valle</button></div>
+<div id="leg"></div>
+<div id="mapa"></div>
+</div>
+
+<div class="card">
+<h2>Tramos más lentos en hora punta</h2>
+<p class="note">Calles con al menos 4 paraderos y 2 servicios; velocidad mediana de buses en movimiento (km/h).</p>
+<div id="tramos"></div>
+</div>
+
+<footer id="foot"></footer>
+</main>
+<script>
+const fmt=d3.format(",d"), es=d3.timeFormatLocale({dateTime:"%A, %e de %B de %Y, %X",date:"%d/%m/%Y",time:"%H:%M:%S",periods:["AM","PM"],days:["domingo","lunes","martes","miércoles","jueves","viernes","sábado"],shortDays:["dom","lun","mar","mié","jue","vie","sáb"],months:["enero","febrero","marzo","abril","mayo","junio","julio","agosto","septiembre","octubre","noviembre","diciembre"],shortMonths:["ene","feb","mar","abr","may","jun","jul","ago","sep","oct","nov","dic"]});
+const css=n=>getComputedStyle(document.documentElement).getPropertyValue(n).trim();
+const W=el=>Math.max(300,document.getElementById(el).clientWidth);
+Promise.all([fetch('data_vivo.json').then(r=>r.json()),fetch('data_estatico.json').then(r=>r.json())]).then(([V,S])=>{
+const C={s1:css('--s1'),s2:css('--s2'),s3:css('--s3'),ctx:css('--ctx'),grid:css('--grid'),muted:css('--muted')};
+const parse=d3.timeParse('%Y-%m-%dT%H:%M'); const act=parse(V.actualizado);
+document.getElementById('sub').textContent=`Transporte público metropolitano · última captura: ${es.format('%e de %B, %H:%M')(act)} (hora de Chile)`;
+const tot=d3.sum(V.ahora,d=>d.total), mov=d3.sum(V.ahora,d=>d.mov), sin=V.ahora.some(d=>d.sin!=null)?d3.sum(V.ahora,d=>d.sin||0):null;
+const k=[['Buses con GPS',fmt(tot),'última captura'],['En movimiento',fmt(mov),`${Math.round(mov/tot*100)} % del total`],['Sin señal reciente',sin==null?'—':fmt(sin),'GPS de 10 a 190 min'],['Operadores',V.ahora.length,'unidades de negocio'],['Capturas 7 días',fmt(V.capturas_7d),'en la rama data']];
+document.getElementById('kpis').innerHTML=k.map(([l,v,d])=>`<div class="kpi"><div class="l">${l}</div><div class="v">${v}</div><div class="d">${d}</div></div>`).join('');
+// serie
+const ser=V.serie.map(([t,a,b,c])=>({t:parse(t),total:a,mov:b,sin:c}));
+const long=ser.flatMap(d=>[{t:d.t,k:'Total con GPS',v:d.total},{t:d.t,k:'En movimiento',v:d.mov}].concat(d.sin==null?[]:[{t:d.t,k:'Sin señal reciente',v:d.sin}]));
+const seg=[];let g=0;ser.forEach((d,i)=>{if(i>0&&(d.t-ser[i-1].t)>30*60000)g++;d.g=g});
+const lin=ser.flatMap(d=>[{t:d.t,k:'Total con GPS',v:d.total,g:d.g},{t:d.t,k:'En movimiento',v:d.mov,g:d.g}].concat(d.sin==null?[]:[{t:d.t,k:'Sin señal reciente',v:d.sin,g:d.g}]));
+const cs={domain:['Total con GPS','En movimiento','Sin señal reciente'],range:[C.ctx,C.s1,C.s2]};
+document.getElementById('serie').append(Plot.plot({width:W('serie'),height:260,marginLeft:48,style:{background:'transparent',fontSize:'12px'},
+ x:{type:'time',label:null,ticks:d3.timeDay.every(1),tickFormat:es.format('%a %e')},y:{grid:true,label:'buses',tickFormat:fmt},color:cs,
+ marks:[Plot.lineY(lin,{x:'t',y:'v',stroke:'k',z:d=>d.k+'|'+d.g,strokeWidth:2}),Plot.dot(long,{x:'t',y:'v',fill:'k',r:2.5}),
+ Plot.tip(long,Plot.pointer({x:'t',y:'v',title:d=>`${es.format('%a %e %b, %H:%M')(d.t)}\n${d.k}: ${fmt(d.v)}`}))]}));
+// perfil
+const pf=V.perfil.flatMap(d=>[{h:d.h,k:'Histórico',v:d.historico}].concat(d.semana==null?[]:[{h:d.h,k:'Últimos 7 días',v:d.semana}]));
+document.getElementById('perfil').append(Plot.plot({width:W('perfil'),height:240,marginLeft:48,style:{background:'transparent',fontSize:'12px'},
+ x:{label:'hora',domain:[0,23],ticks:[0,3,6,9,12,15,18,21]},y:{grid:true,label:'buses en movimiento',tickFormat:fmt},color:{domain:['Histórico','Últimos 7 días'],range:[C.ctx,C.s1]},
+ marks:[Plot.lineY(pf,{x:'h',y:'v',stroke:'k',strokeWidth:2}),Plot.dot(pf.filter(d=>d.k!=='Histórico'),{x:'h',y:'v',fill:'k',r:3}),Plot.tip(pf,Plot.pointer({x:'h',y:'v',title:d=>`${d.h}:00 · ${d.k}: ${fmt(d.v)}`}))]}));
+// operadores
+const ops=V.ahora.map(d=>({n:d.nombre.replace(/^U\d+ - /,''),mov:d.mov,sin:d.sin||0,det:Math.max(0,d.total-d.mov-(d.sin||0)),total:d.total})).sort((a,b)=>b.total-a.total);
+const ol=ops.flatMap(d=>[{n:d.n,k:'En movimiento',v:d.mov},{n:d.n,k:'Detenido',v:d.det},{n:d.n,k:'Sin señal reciente',v:d.sin}]);
+document.getElementById('opnote').textContent='Buses detectados por unidad de negocio, ordenados por tamaño.';
+document.getElementById('ops').append(Plot.plot({width:W('ops'),height:Math.max(260,ops.length*24+40),marginLeft:150,style:{background:'transparent',fontSize:'12px'},
+ y:{domain:ops.map(d=>d.n),label:null},x:{grid:true,label:'buses',tickFormat:fmt},color:{domain:['En movimiento','Detenido','Sin señal reciente'],range:[C.s1,C.s3,C.s2]},
+ marks:[Plot.barX(ol,Plot.stackX({y:'n',x:'v',fill:'k',inset:1,tip:{format:{fill:true,x:false,y:true}},title:d=>`${d.n}\n${d.k}: ${fmt(d.v)}`}))]}));
+// mapa
+const P=S.paraderos.map(([la,lo,p,v,c,n,cm])=>({la,lo,p,v,c,n,cm}));
+document.getElementById('mapnote').textContent=`${fmt(P.length)} paraderos con datos suficientes · ${S.periodo} · buses en movimiento con GPS al día. Punta = la peor entre 7–9 h y 18–20 h; valle = 11–16 h.`;
+let modo='p';
+const seq=['#cde2fb','#86b6ef','#3987e5','#1c5cab','#0d366b'];
+function mapa(){
+ const el=document.getElementById('mapa'); el.innerHTML='';
+ const cfg=modo==='p'?{f:d=>d.p,dom:[18,14,11,8],lab:['18 o más','14–18','11–14','8–11','menos de 8'],sc:v=>v>=18?0:v>=14?1:v>=11?2:v>=8?3:4}:{f:d=>d.c,dom:[],lab:['menos de 5 %','5–15 %','15–30 %','30–45 %','45 % o más'],sc:v=>v<5?0:v<15?1:v<30?2:v<45?3:4};
+ document.getElementById('leg').innerHTML='<div class="legend">'+(modo==='p'?'Km/h en punta (más oscuro = más lento): ':'Cuánto baja la velocidad en punta respecto del valle: ')+cfg.lab.map((l,i)=>`<span><i class="sw" style="background:${seq[i]}"></i>${l}</span>`).join('')+'</div>';
+ const data=P.map(d=>({...d,b:cfg.sc(cfg.f(d))})).sort((a,b)=>a.b-b.b);
+ const w=W('mapa');
+ el.append(Plot.plot({width:w,height:Math.round(w*1.0),style:{background:'transparent',fontSize:'11px'},
+  projection:{type:'mercator',domain:{type:'MultiPoint',coordinates:P.map(d=>[d.lo,d.la])},inset:6},
+  marks:[Plot.geo(S.comunas,{stroke:C.muted,strokeWidth:0.6,strokeOpacity:0.7,fill:'none'}),
+   Plot.text(S.comunas.features,Plot.centroid({text:d=>d.properties.n,fill:C.muted,fontSize:10,stroke:'var(--surface)',strokeWidth:3,paintOrder:'stroke'})),
+   Plot.dot(data,{x:'lo',y:'la',r:d=>d.b>=3?3.2:2.4,fill:d=>seq[d.b],stroke:'var(--surface)',strokeWidth:0.5}),
+   Plot.tip(data,Plot.pointer({x:'lo',y:'la',title:d=>`${d.n} (${d.cm})\nPunta: ${d.p} km/h · valle: ${d.v} km/h\nCaída: ${d.c} %`}))]}));
+}
+document.getElementById('tp').onclick=()=>{modo='p';document.getElementById('tp').classList.add('on');document.getElementById('tc').classList.remove('on');mapa()};
+document.getElementById('tc').onclick=()=>{modo='c';document.getElementById('tc').classList.add('on');document.getElementById('tp').classList.remove('on');mapa()};
+mapa();
+// tabla
+document.getElementById('tramos').innerHTML='<table><thead><tr><th>Tramo</th><th>Comuna</th><th class="n">Punta</th><th class="n">Valle</th><th class="n">Caída</th><th>Peor</th></tr></thead><tbody>'+
+ S.tramos.map(t=>`<tr><td>${t.calle}${t.cruces&&t.cruces!==t.calle?`<br><span style="color:var(--muted);font-size:12px">${t.cruces}</span>`:''}</td><td>${t.comuna}</td><td class="n">${t.punta.toFixed(1)}</td><td class="n">${t.valle.toFixed(1)}</td><td class="n">${t.caida} %</td><td>${t.peor}</td></tr>`).join('')+'</tbody></table>';
+document.getElementById('foot').innerHTML=`Fuente: API de posiciones del DTPM, capturada por el repo <a href="https://github.com/elaval/BUSES-DTPM" style="color:inherit">elaval/BUSES-DTPM</a>. Recorridos y paraderos: GTFS oficial del DTPM (julio 2026). Las secciones de flota se actualizan con cada refresco de esta página; el análisis por paradero corresponde a ${S.periodo}.`;
+}).catch(e=>{document.getElementById('sub').textContent='No se pudieron cargar los datos: '+e});
+</script>
+</body>
+</html>
