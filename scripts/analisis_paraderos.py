@@ -1,10 +1,11 @@
 """
-Análisis de velocidad por paradero y por recorrido, para el dashboard.
+Análisis de velocidad por TRAMO entre paraderos y por recorrido, para el dashboard.
 
 Genera:
-  pagina/data_estatico.json  -> velocidad por paradero, comunas y tramos más lentos
-  pagina/lineas.json         -> por recorrido: buses por hora y velocidad por paradero,
-                                más el índice paradero -> recorridos de toda la red
+  pagina/data_estatico.json  -> tramos de la red (entre paraderos consecutivos) con
+                                velocidad en punta y valle, comunas y tramos más lentos
+  pagina/lineas.json         -> por recorrido: buses por hora, paraderos y velocidad
+                                por tramo; más el índice paradero -> recorridos de la red
 
 Entradas:
   --archivo  parquet con el detalle bus por bus (p. ej. el del Release
@@ -13,17 +14,22 @@ Entradas:
   --excel    docs/Servicios_decos_*.xlsx (código interno -> recorrido público)
 
 Uso:
-  pip install pandas pyarrow openpyxl scipy shapely
+  pip install pandas pyarrow openpyxl shapely
   python scripts/analisis_paraderos.py --archivo data/archivo_gps_2026-05-08_a_2026-11-14.parquet \
       --gtfs docs/gtfs/GTFS_20260704.zip --excel docs/Servicios_decos_09022026.xlsx
 
-Método (resumen):
+Método:
   - Días hábiles; GPS con antigüedad real <= 10 min (corrige el desfase UTC de los
-    datos anteriores al 15-nov-2026); buses en movimiento; sin servicios "TS".
-  - Cada posición se asigna al paradero más cercano (< 250 m) de SU recorrido y
-    sentido; se excluyen los primeros/últimos 400 m (terminales).
-  - Punta = 7-9 h y 18-20 h; valle = 11-16 h. Velocidad = mediana de
-    velocidad_promedio (promedio de las 4 últimas transmisiones GPS).
+    datos anteriores al 15-nov-2026); solo buses EN MOVIMIENTO (> 5 km/h); sin
+    servicios "TS" (sin servicio comercial).
+  - Cada posición se proyecta sobre el trazado oficial (GTFS shapes) de SU recorrido
+    y sentido (a menos de 60 m del trazado) y se asigna al tramo entre los dos
+    paraderos consecutivos que la rodean. Se excluyen los primeros y últimos 400 m
+    del recorrido (terminales).
+  - Velocidad del tramo = mediana de velocidad_promedio (promedio de las 4 últimas
+    transmisiones GPS) de los buses en movimiento en ese tramo. No incluye el
+    tiempo detenido en paraderos: es la velocidad de circulación, no la comercial.
+  - Punta = 7-9 h y 18-20 h; valle = 11-16 h.
 """
 import argparse, io, json, re, urllib.request, warnings, zipfile
 from pathlib import Path
@@ -31,8 +37,8 @@ from zoneinfo import ZoneInfo
 
 import numpy as np
 import pandas as pd
-from scipy.spatial import cKDTree
-from shapely.geometry import Point, mapping, shape
+import shapely
+from shapely.geometry import LineString, Point, mapping, shape
 from shapely.strtree import STRtree
 
 warnings.filterwarnings('ignore')
@@ -40,16 +46,17 @@ URL_COMUNAS = 'https://raw.githubusercontent.com/caracena/chile-geojson/master/1
 PERIODO = {7: 'am', 8: 'am', 18: 'pm', 19: 'pm', 11: 'valle', 12: 'valle', 13: 'valle', 14: 'valle', 15: 'valle'}
 LAT0 = -33.45
 KX, KY = np.cos(np.radians(LAT0)) * 111320, 110540
+MIN_RED = {'am': 30, 'pm': 30, 'valle': 60}   # mínimos de registros por tramo de la red
+MIN_LINEA = 8                                  # mínimo por tramo y período en una línea
 
 
-def xy(lat, lon):
-    return np.c_[(lon + 70.65) * KX, (lat - LAT0) * KY]
+def a_xy(lon, lat):
+    return np.c_[(np.asarray(lon) + 70.65) * KX, (np.asarray(lat) - LAT0) * KY]
 
 
-def hav(a1, o1, a2, o2):
-    p = np.pi / 180
-    return 2 * 6371 * np.arcsin(np.sqrt(np.sin((a2 - a1) * p / 2) ** 2 +
-                                        np.cos(a1 * p) * np.cos(a2 * p) * np.sin((o2 - o1) * p / 2) ** 2))
+def a_lonlat(xy):
+    xy = np.asarray(xy)
+    return np.c_[xy[:, 0] / KX - 70.65, xy[:, 1] / KY + LAT0]
 
 
 def edad_real(a):
@@ -60,6 +67,29 @@ def edad_real(a):
            for t in ts}
     corr = a.timestamp.map(off).where(a.timestamp < '2026-11-15 00:00', 0)
     return a.edad_datos_min + corr
+
+
+def limpio(n):
+    return re.sub(r'^[A-Z]+\d+-', '', n)
+
+
+def calle_cruce(n):
+    """('Av. Cristóbal Colón', 'Alcántara') a partir de 'PA12-Av. Cristóbal Colón / esq. Alcántara'."""
+    a_, _, b = limpio(n).partition(' / ')
+    b = b.replace('esq. ', '').strip()
+    if a_.lower().startswith('parada'):
+        return '', b                      # paradero de estación: sin calle, solo el hito
+    c = re.sub(r'^(Avenida|Avda\.?|Av)\s+', 'Av. ', a_.strip()).replace('Av. Av.', 'Av.')
+    return c, b
+
+
+def nombre_tramo(n1, n2):
+    c1, x1 = calle_cruce(n1)
+    c2, x2 = calle_cruce(n2)
+    calle = c1 or c2
+    if calle:
+        return calle, f'entre {x1 or limpio(n1)} y {x2 or limpio(n2)}'
+    return x1, f'entre {x1} y {x2}'
 
 
 def main():
@@ -79,15 +109,20 @@ def main():
     srv2pub = x.drop_duplicates('srv').set_index('srv').pub.to_dict()
     pub2op = x.drop_duplicates('pub').set_index('pub').CLI_DSC.str.replace(r'^U\d+ - ', '', regex=True).to_dict()
 
-    # --- GTFS
+    # --- GTFS: trazado y paraderos de un viaje representativo por recorrido y sentido
     z = zipfile.ZipFile(args.gtfs)
     rd = lambda n, **k: pd.read_csv(io.BytesIO(z.read(n)), dtype=str, **k)
     routes = rd('routes.txt').set_index('route_short_name').route_long_name.to_dict()
     t = rd('trips.txt')
     t = t[t.shape_id.str[-1].isin(['I', 'R'])].copy()
     t['dir'] = t.shape_id.str[-1]
-    heads = t.drop_duplicates(['route_id', 'dir']).set_index(['route_id', 'dir']).trip_headsign.to_dict()
-    rep = t.drop_duplicates(['route_id', 'dir'])[['route_id', 'dir', 'trip_id']]
+    rep = t.drop_duplicates(['route_id', 'dir'])[['route_id', 'dir', 'trip_id', 'shape_id', 'trip_headsign']]
+    sh = rd('shapes.txt')
+    sh = sh[sh.shape_id.isin(rep.shape_id)]
+    sh[['shape_pt_lat', 'shape_pt_lon']] = sh[['shape_pt_lat', 'shape_pt_lon']].astype(float)
+    sh['shape_pt_sequence'] = sh.shape_pt_sequence.astype(int)
+    lineas_geo = {k: LineString(a_xy(g.shape_pt_lon, g.shape_pt_lat))
+                  for k, g in sh.sort_values('shape_pt_sequence').groupby('shape_id') if len(g) > 1}
     st = rd('stop_times.txt', usecols=['trip_id', 'stop_id', 'stop_sequence'])
     st['stop_sequence'] = st.stop_sequence.astype(int)
     st = st[st.trip_id.isin(rep.trip_id)].merge(rep, on='trip_id').sort_values(['route_id', 'dir', 'stop_sequence'])
@@ -95,106 +130,125 @@ def main():
     stops[['stop_lat', 'stop_lon']] = stops[['stop_lat', 'stop_lon']].astype(float)
     st = st.merge(stops, on='stop_id')
 
+    # Recorridos: paraderos con su posición (km) sobre el trazado
+    REC = {}
+    for (r, dr), s in st.groupby(['route_id', 'dir']):
+        line = lineas_geo.get(s.shape_id.iloc[0])
+        if line is None or len(s) < 3:
+            continue
+        s = s.reset_index(drop=True)
+        ch = shapely.line_locate_point(line, shapely.points(a_xy(s.stop_lon, s.stop_lat)))
+        ch = np.maximum.accumulate(ch)                    # monotonía ante pequeños retrocesos
+        REC[(r, dr)] = {'line': line, 'stops': s, 'ch': ch, 'destino': s.trip_headsign.iloc[0]}
+
     # --- datos GPS
     a = pd.read_parquet(args.archivo)
     a['edad'] = edad_real(a)
     a['h'] = a.timestamp.dt.hour
     hab = a[(a.timestamp.dt.dayofweek < 5) & a.edad.between(0, 10)]
     periodo_txt = args.periodo or f"días hábiles, {a.timestamp.min():%d-%m-%Y} a {a.timestamp.max():%d-%m-%Y}"
-
     d = hab[(hab.estado == 'en_movimiento') & (~hab.servicio.fillna('').str.endswith('TS')) &
-            (hab.servicio.fillna('') != '') & hab.latitud.between(-33.75, -33.25) & hab.longitud.between(-70.95, -70.45)]
+            (hab.servicio.fillna('') != '')]
     d = d.assign(periodo=d.h.map(PERIODO), pub=d.servicio.map(srv2pub)).dropna(subset=['periodo', 'pub', 'sentido'])
     print('registros en movimiento (punta/valle):', len(d))
 
-    # --- asignar cada posición al paradero más cercano de su recorrido y sentido
+    # --- asignar cada posición al tramo entre paraderos de su recorrido y sentido
     asig = []
     for (r, dr), g in d.groupby(['pub', 'sentido']):
-        s = st[(st.route_id == r) & (st.dir == dr)]
-        if len(s) < 3:
+        R = REC.get((r, dr))
+        if R is None:
             continue
-        P = xy(s.stop_lat.values, s.stop_lon.values)
-        Q = xy(g.latitud.values, g.longitud.values)
-        dist, idx = cKDTree(P).query(Q)
-        dt = np.minimum(np.hypot(*(Q - P[0]).T), np.hypot(*(Q - P[-1]).T))
-        ok = (dist < 250) & (dt > 400)
-        gg = g[ok][['periodo', 'velocidad_promedio', 'pub', 'sentido']].copy()
-        gg['stop_id'] = s.stop_id.values[idx[ok]]
+        pts = shapely.points(a_xy(g.longitud, g.latitud))
+        dist = shapely.distance(R['line'], pts)
+        pos = shapely.line_locate_point(R['line'], pts)
+        ch = R['ch']
+        k = np.searchsorted(ch, pos, side='right') - 1
+        ok = (dist < 60) & (pos > 400) & (pos < R['line'].length - 400) & (k >= 0) & (k < len(ch) - 1)
+        gg = g[ok][['periodo', 'velocidad_promedio']].copy()
+        gg['ruta'], gg['dir'], gg['k'] = r, dr, k[ok]
         asig.append(gg)
     o = pd.concat(asig)
-    print('registros asignados a paraderos:', len(o))
+    print('registros asignados a tramos:', len(o))
 
-    # --- comunas
+    # --- por tramo de cada recorrido
+    v = o.groupby(['ruta', 'dir', 'k', 'periodo']).velocidad_promedio.agg(['median', 'size']).unstack()
+    v.columns = [f'{m}_{p}' for m, p in v.columns]
+
+    # --- tramos de la red: mismo par de paraderos, todas las líneas juntas
+    def par_id(r, dr, k):
+        s = REC[(r, dr)]['stops']
+        return s.stop_id.iloc[k] + '>' + s.stop_id.iloc[k + 1]
+    o['par'] = [par_id(r, dr, k) for r, dr, k in zip(o.ruta, o.dir, o.k)]
+    gp = o.groupby(['par', 'periodo']).velocidad_promedio.agg(['median', 'size']).unstack()
+    gp.columns = [f'{m}_{p}' for m, p in gp.columns]
+    gp = gp[(gp.size_am >= MIN_RED['am']) & (gp.size_pm >= MIN_RED['pm']) & (gp.size_valle >= MIN_RED['valle'])].copy()
+    gp['punta'] = gp[['median_am', 'median_pm']].min(axis=1)
+    gp['caida'] = (1 - gp.punta / gp.median_valle) * 100
+    gp['n_serv'] = o.groupby('par').ruta.nunique()
+    # geometría y nombres de cada par: del primer recorrido que lo usa
+    rep_par = o.drop_duplicates('par').set_index('par')[['ruta', 'dir', 'k']]
+
+    from shapely.ops import substring
+
+    def coords_tramo(r, dr, k, tol=12):
+        R = REC[(r, dr)]
+        seg = substring(R['line'], R['ch'][k], R['ch'][k + 1]).simplify(tol)
+        c = np.asarray(seg.coords) if seg.length > 0 else np.asarray([seg.coords[0], seg.coords[0]])
+        return [[round(lo, 5), round(la, 5)] for lo, la in a_lonlat(c)]
+
+    # comunas
     gj = json.loads(urllib.request.urlopen(URL_COMUNAS).read())
     polys = [shape(f['geometry']) for f in gj['features']]
     names = [f['properties']['Comuna'] for f in gj['features']]
     tree = STRtree(polys)
 
-    def comuna(la, lo):
+    def comuna(lo, la):
         p = Point(lo, la)
         for i in tree.query(p):
             if polys[i].contains(p):
                 return names[i]
         return '?'
 
-    # --- velocidad por paradero (todas las líneas)
-    g = o.groupby(['stop_id', 'periodo']).velocidad_promedio.agg(['median', 'size']).unstack()
-    g.columns = [f'{x}_{y}' for x, y in g.columns]
-    g = g.reset_index()
-    g = g[(g.size_am >= 30) & (g.size_pm >= 30) & (g.size_valle >= 60)]
-    g['punta'] = g[['median_am', 'median_pm']].min(axis=1)
-    g['caida'] = (1 - g.punta / g.median_valle) * 100
-    g = g.merge(o.groupby('stop_id').pub.nunique().rename('n_serv'), on='stop_id').merge(stops, on='stop_id')
-
-    def limpio(n):
-        return re.sub(r'^[A-Z]+\d+-', '', n)
-
-    def calle(n):
-        a_, _, b = limpio(n).partition(' / ')
-        c = (b if a_.lower().startswith('parada') else a_).strip()
-        return re.sub(r'^(Avenida|Avda\.?|Av)\s+', 'Av. ', c).replace('Av. Av.', 'Av.')
-
-    def cruce(n):
-        return limpio(n).partition(' / ')[2].replace('esq. ', '').strip()
-
-    g['calle'] = g.stop_name.map(calle)
-    g['cruce'] = g.stop_name.map(cruce)
-    g['comuna'] = [comuna(la, lo) for la, lo in zip(g.stop_lat, g.stop_lon)]
-    par = [[round(la, 5), round(lo, 5), round(p, 1), round(v, 1), round(c), limpio(n), cm]
-           for la, lo, p, v, c, n, cm in zip(g.stop_lat, g.stop_lon, g.punta, g.median_valle, g.caida, g.stop_name, g.comuna)]
+    tramos_red = []
+    filas = []
+    for par, r_ in gp.iterrows():
+        rr = rep_par.loc[par]
+        s = REC[(rr.ruta, rr.dir)]['stops']
+        n1, n2 = s.stop_name.iloc[rr.k], s.stop_name.iloc[rr.k + 1]
+        calle, entre = nombre_tramo(n1, n2)
+        cs = coords_tramo(rr.ruta, rr.dir, rr.k)
+        mid = cs[len(cs) // 2]
+        cm = comuna(*mid)
+        tramos_red.append([cs, round(r_.punta, 1), round(r_.median_valle, 1), round(r_.caida), calle, entre, cm, int(r_.n_serv)])
+        filas.append({'calle': calle, 'entre': entre, 'comuna': cm, 'punta': r_.punta, 'valle': r_.median_valle,
+                      'caida': r_.caida, 'am': r_.median_am, 'pm': r_.median_pm, 'n_serv': r_.n_serv})
+    f = pd.DataFrame(filas)
+    # tabla: tramos más lentos (con 2+ servicios), uno por calle y comuna
+    top = f[(f.n_serv >= 2) & (f.calle != '')].sort_values('punta').drop_duplicates(['calle', 'comuna']).head(15)
+    tabla = [{'calle': (('Entorno Metro ' + r.calle.replace('(M) ', '')) if r.calle.startswith('(M)') else r.calle),
+              'cruces': r.entre, 'comuna': r.comuna, 'punta': round(r.punta, 1), 'valle': round(r.valle, 1),
+              'caida': round(r.caida), 'peor': 'mañana' if r.am < r.pm else 'tarde'} for r in top.itertuples()]
 
     feats = []
-    for f in gj['features']:
-        s_ = shape(f['geometry'])
+    for ft in gj['features']:
+        s_ = shape(ft['geometry'])
         c = s_.centroid
         if -33.66 < c.y < -33.28 and -70.86 < c.x < -70.48:
             m = mapping(s_.simplify(0.0015))
 
-            def rnd(v):
-                return [rnd(i) for i in v] if isinstance(v, (list, tuple)) and v and isinstance(v[0], (list, tuple)) \
-                    else [round(v[0], 4), round(v[1], 4)]
-            feats.append({'type': 'Feature', 'properties': {'n': f['properties']['Comuna']},
+            def rnd(v_):
+                return [rnd(i) for i in v_] if isinstance(v_, (list, tuple)) and v_ and isinstance(v_[0], (list, tuple)) \
+                    else [round(v_[0], 4), round(v_[1], 4)]
+            feats.append({'type': 'Feature', 'properties': {'n': ft['properties']['Comuna']},
                           'geometry': {'type': m['type'], 'coordinates': rnd(m['coordinates'])}})
 
-    q = g[g.n_serv >= 2]
-    c = q.groupby(['calle', 'comuna']).agg(par=('stop_id', 'size'), punta=('punta', 'median'), valle=('median_valle', 'median'),
-                                          caida=('caida', 'median'), am=('median_am', 'median'), pm=('median_pm', 'median')).reset_index()
-    c = c[c.par >= 4].sort_values('punta').head(15)
-
-    def cruces(cl, cm):
-        return ', '.join(dict.fromkeys(q[(q.calle == cl) & (q.comuna == cm)].sort_values('punta').cruce.head(3)))
-    tramos = [{'calle': r.calle.replace('(M) ', 'Entorno Metro '), 'comuna': r.comuna,
-               'cruces': '' if r.calle.startswith('(M)') else cruces(r.calle, r.comuna),
-               'punta': round(r.punta, 1), 'valle': round(r.valle, 1), 'caida': round(r.caida),
-               'peor': 'mañana' if r.am < r.pm else 'tarde'} for r in c.itertuples()]
     out.mkdir(exist_ok=True)
     (out / 'data_estatico.json').write_text(json.dumps(
-        {'paraderos': par, 'comunas': {'type': 'FeatureCollection', 'features': feats}, 'tramos': tramos, 'periodo': periodo_txt},
-        ensure_ascii=False, separators=(',', ':')), encoding='utf-8')
-    print('data_estatico.json:', len(par), 'paraderos')
+        {'tramos_red': tramos_red, 'comunas': {'type': 'FeatureCollection', 'features': feats}, 'tramos': tabla,
+         'periodo': periodo_txt}, ensure_ascii=False, separators=(',', ':')), encoding='utf-8')
+    print('data_estatico.json:', len(tramos_red), 'tramos de la red')
 
     # --- por recorrido
-    v = o.groupby(['pub', 'sentido', 'stop_id', 'periodo']).velocidad_promedio.agg(['median', 'size']).reset_index()
     act = hab[hab.estado != 'detenido'].assign(pub=lambda df: df.servicio.map(srv2pub)).dropna(subset=['pub'])
     cnt = act.groupby(['pub', 'timestamp']).size()
     allts = pd.Index(hab.timestamp.unique())
@@ -204,28 +258,29 @@ def main():
         bh[p] = [int(round(i)) for i in s_.groupby(s_.index.hour).median().reindex(range(24), fill_value=0)]
 
     L = {}
-    for (r, dr), s_ in st.groupby(['route_id', 'dir']):
+    for (r, dr), R in REC.items():
         if r not in bh:
             continue
-        s_ = s_.reset_index(drop=True)
-        km = np.r_[0, np.cumsum(hav(s_.stop_lat.values[:-1], s_.stop_lon.values[:-1], s_.stop_lat.values[1:], s_.stop_lon.values[1:]))]
-        vv = v[(v.pub == r) & (v.sentido == dr)].pivot_table(index='stop_id', columns='periodo', values=['median', 'size'])
-        rows = []
-        for i, rw in s_.iterrows():
+        s, ch = R['stops'], R['ch']
+        par = [[round(ch[i] / 1000, 2), limpio(s.stop_name.iloc[i]), round(s.stop_lat.iloc[i], 5), round(s.stop_lon.iloc[i], 5)]
+               for i in range(len(s))]
+        tr = []
+        for k in range(len(s) - 1):
             def val(per):
                 try:
-                    return round(float(vv.loc[rw.stop_id, ('median', per)]), 1) if vv.loc[rw.stop_id, ('size', per)] >= 8 else None
+                    row = v.loc[(r, dr, k)]
+                    return round(float(row[f'median_{per}']), 1) if row[f'size_{per}'] >= MIN_LINEA else None
                 except KeyError:
                     return None
-            rows.append([round(float(km[i]), 2), limpio(rw.stop_name), val('am'), val('pm'), val('valle'),
-                         round(rw.stop_lat, 5), round(rw.stop_lon, 5)])
+            tr.append([k, val('am'), val('pm'), val('valle'), coords_tramo(r, dr, k, tol=15)])
         L.setdefault(r, {'nombre': routes.get(r, ''), 'operador': pub2op.get(r, ''), 'buses_hora': bh[r], 'sentidos': {}})
-        L[r]['sentidos'][dr] = {'destino': heads.get((r, dr), ''), 'paraderos': rows}
+        L[r]['sentidos'][dr] = {'destino': R['destino'], 'paraderos': par, 'tramos': tr}
 
     sr = st[st.route_id.isin(L.keys())].groupby('stop_id').route_id.apply(
         lambda x: sorted(set(x), key=lambda r: (len(r), r))).reset_index().merge(stops, on='stop_id')
     red = [[round(r.stop_lat, 5), round(r.stop_lon, 5), limpio(r.stop_name), r.route_id] for r in sr.itertuples()]
-    (out / 'lineas.json').write_text(json.dumps({'lineas': L, 'red': red}, ensure_ascii=False, separators=(',', ':')), encoding='utf-8')
+    (out / 'lineas.json').write_text(json.dumps({'lineas': L, 'red': red}, ensure_ascii=False, separators=(',', ':')),
+                                     encoding='utf-8')
     print('lineas.json:', len(L), 'recorridos,', len(red), 'paraderos de la red')
 
 

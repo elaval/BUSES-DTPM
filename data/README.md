@@ -18,8 +18,8 @@ La rama también sirve el dashboard en GitHub Pages:
 | `data/metricas_historicas.parquet` | Conteos agregados por operador y por servicio, una fila por captura | 3 MB | Cada captura (crece) |
 | `data/datos_recientes.parquet` | Un registro por bus y captura, con posición y velocidad. Solo los últimos 7 días | 5–15 MB | Cada captura (ventana móvil) |
 | `data_vivo.json` | Resumen liviano para el dashboard (últimos 7 días) | 5 KB | Cada captura |
-| `data_estatico.json` | Velocidad por paradero, comunas y tramos más lentos (análisis may–nov 2026) | 220 KB | Manual |
-| `lineas.json` | Análisis por recorrido: buses por hora y velocidad por paradero | 3,8 MB | Manual |
+| `data_estatico.json` | Velocidad por tramo entre paraderos (toda la red), comunas y tramos más lentos (análisis may–nov 2026) | 400 KB | Manual (`scripts/analisis_paraderos.py`) |
+| `lineas.json` | Análisis por recorrido: buses por hora, paraderos y velocidad por tramo; índice paradero → recorridos | 6 MB | Manual (`scripts/analisis_paraderos.py`) |
 | `index.html` | Página del dashboard | — | Con cada cambio en `main` |
 
 Además, el detalle bus por bus de **todas las capturas del 8 de mayo al 14 de
