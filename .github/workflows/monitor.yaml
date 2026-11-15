@@ -1,0 +1,80 @@
+name: Monitor Flota DTPM
+
+on:
+  # Disparador principal: cron-job.org llama a la API de GitHub cada 10 min
+  # (workflow_dispatch). El cron de GitHub es poco confiable para
+  # frecuencias altas: en la práctica corría ~4 veces al día.
+  workflow_dispatch:
+  # Respaldo: si el disparador externo falla, al menos una captura por hora
+  # (cuando GitHub la lance).
+  schedule:
+    - cron: '17 * * * *'
+
+# Nunca dos capturas a la vez: evita choques al publicar los datos.
+concurrency:
+  group: monitor-dtpm
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+jobs:
+  monitor:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+
+    steps:
+    - name: Checkout código (main)
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 1
+
+    # Los datos viven en la rama `data`, que se reescribe en cada captura
+    # (un solo commit, sin historial) para que el repo no crezca.
+    # Si la rama aún no existe, se usan los parquet que hay en main.
+    - name: Traer datos actuales (rama data)
+      run: |
+        if git ls-remote --exit-code --heads origin data > /dev/null; then
+          git fetch --depth 1 origin data
+          git checkout FETCH_HEAD -- data/metricas_historicas.parquet data/datos_recientes.parquet
+          echo "Datos tomados de la rama data"
+        else
+          echo "Rama data no existe aún: se usan los parquet de main"
+        fi
+
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.11'
+
+    - name: Install dependencies
+      run: pip install pandas pyarrow requests
+
+    - name: Run monitor
+      env:
+        DTPM_USUARIO: ${{ secrets.DTPM_USUARIO }}
+        DTPM_CLAVE: ${{ secrets.DTPM_CLAVE }}
+      run: python scripts/monitor.py
+
+    - name: Publicar datos en la rama data (sin historial)
+      env:
+        GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      run: |
+        PUB=$(mktemp -d)
+        mkdir -p "$PUB/data"
+        cp data/metricas_historicas.parquet data/datos_recientes.parquet "$PUB/data/"
+        cat > "$PUB/README.md" <<'TXT'
+        # Datos del Monitor de Flota DTPM
+
+        Rama generada automáticamente por GitHub Actions. Contiene solo la
+        versión más reciente de los datos (un único commit, sin historial).
+        El código está en la rama `main`.
+        TXT
+        cd "$PUB"
+        git init -q -b data
+        git config user.email "github-actions[bot]@users.noreply.github.com"
+        git config user.name "github-actions[bot]"
+        git add .
+        git commit -q -m "📊 Datos: $(date -u '+%Y-%m-%d %H:%M UTC')"
+        git push -q --force "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" data
+        echo "Datos publicados en la rama data"
