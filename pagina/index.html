@@ -42,6 +42,7 @@ footer{color:var(--muted);font-size:12px;margin-top:24px}
 #lmpanel .t{font-weight:600;margin-bottom:4px} #lmpanel .r{display:flex;flex-wrap:wrap;gap:4px;margin-top:4px}
 #lmpanel button{font:inherit;font-size:12px;padding:2px 7px;border-radius:6px;border:1px solid var(--border);background:var(--bg);color:var(--ink);cursor:pointer}
 #lmpanel button.cur{border-color:var(--s1);color:var(--s1);font-weight:600}
+#lmpanel button:not(.cur):hover,#lmpanel button:not(.cur):focus-visible{border-color:var(--s2);color:var(--s2)}
 #linmapa svg .zoomable path,#linmapa svg .zoomable line{vector-effect:non-scaling-stroke}
 figure{margin:0}
 </style>
@@ -118,7 +119,7 @@ figure{margin:0}
 <div id="linhead"></div>
 <div class="kpis" id="linkpis"></div>
 <h2 style="font-size:15px">Mapa del recorrido</h2>
-<p class="note">Tramos del recorrido coloreados según la velocidad de esta línea (en blanco, sin datos suficientes). Puntos oscuros: paraderos del recorrido; en gris, el resto de la red. Pasa el cursor sobre un tramo para ver su velocidad, o sobre cualquier paradero para ver qué recorridos lo atienden; haz clic para fijarlo y elegir otra línea.</p>
+<p class="note">Tramos del recorrido coloreados según la velocidad de esta línea (en blanco, sin datos suficientes). Puntos oscuros: paraderos del recorrido; en gris, el resto de la red. Pasa el cursor sobre un tramo para ver su velocidad, o sobre cualquier paradero para ver qué recorridos lo atienden y sus trazados; haz clic para fijarlo, pasa el cursor sobre cada número para destacar ese recorrido y haz clic para elegirlo.</p>
 <div style="display:flex;gap:16px;flex-wrap:wrap;align-items:center">
 <div class="tabs" id="lmsent"></div>
 <div class="tabs" id="lmper"><button data-p="pk" class="on">Peor punta</button><button data-p="am">Punta mañana</button><button data-p="pm">Punta tarde</button><button data-p="va">Valle</button></div>
@@ -312,10 +313,39 @@ cargar('lineas').catch(e=>{document.getElementById('linerr').textContent='No se 
   const circ=[...zg.querySelectorAll('circle')].map(c=>[c,+c.getAttribute('r')||+c.parentNode.getAttribute('r')||2]);
   const txt=[...zg.querySelectorAll('text')].map(t=>[t,parseFloat(getComputedStyle(t).fontSize)||11]);
   let tf=d3.zoomIdentity, raf=0;
+  // Capa para mostrar los trazados de los recorridos de un paradero (al pasar el cursor)
+  // y destacar uno de ellos (al pasar el cursor sobre su botón en el panel)
+  // ovB: trazados tenues, bajo el recorrido actual y con opacidad de grupo (no se oscurecen al superponerse);
+  // ovA: el recorrido destacado y el anillo del paradero, encima de todo
+  const ovB=document.createElementNS(NS,'g'), ovA=document.createElementNS(NS,'g');
+  [ovB,ovA].forEach(g=>g.setAttribute('pointer-events','none'));
+  zg.insertBefore(ovB,zg.querySelector('g[aria-label="line"]')); zg.appendChild(ovA);
+  const trazos=new Map(), lineaPx=d3.line();
+  function trazo(r,s){const k=r+'|'+s;if(!trazos.has(k)){const pts=[];
+    LN[r].sentidos[s].tramos.forEach(t=>t[4].forEach(c=>{const q=proj(c),u=pts.at(-1);if(!u||u[0]!==q[0]||u[1]!==q[1])pts.push(q)}));
+    trazos.set(k,pts.length>1?lineaPx(pts):null)}return trazos.get(k)}
+  // sentidos del recorrido que pasan por ese paradero (si no se encuentra, ambos)
+  const sentidosEn=(r,p)=>{const ss=Object.entries(LN[r].sentidos).filter(([,S3])=>S3.paraderos.some(q=>Math.abs(q[2]-p.la)<1e-5&&Math.abs(q[3]-p.lo)<1e-5)).map(([s])=>s);return ss.length?ss:Object.keys(LN[r].sentidos)};
+  let ovP=null, ovRs=[];
+  function dibujarOv(p,rs,dest){
+   ovB.replaceChildren(); ovA.replaceChildren(); ovP=p; ovRs=rs; ovB.style.opacity=dest?0.18:0.5;
+   for(const r of rs){ if(!LN[r]||(r===id&&r!==dest)) continue;
+    for(const s of sentidosEn(r,p)){ const d=trazo(r,s); if(!d) continue;
+     const pa=document.createElementNS(NS,'path'), on=r===dest;
+     pa.setAttribute('d',d); pa.setAttribute('vector-effect','non-scaling-stroke');
+     Object.assign(pa.style,{fill:'none',strokeLinejoin:'round',strokeLinecap:'round',stroke:on?C.s2:C.ink2,strokeWidth:on?'4px':'2px',strokeOpacity:on?0.95:1});
+     (on?ovA:ovB).appendChild(pa);
+    }}
+   const [cx,cy]=proj([p.lo,p.la]), c=document.createElementNS(NS,'circle');
+   c.setAttribute('cx',cx); c.setAttribute('cy',cy); c.setAttribute('r',6/tf.k); c.setAttribute('vector-effect','non-scaling-stroke');
+   Object.assign(c.style,{fill:'none',stroke:'currentColor',strokeWidth:'1.5px'}); ovA.appendChild(c);
+  }
+  const limpiarOv=()=>{ovB.replaceChildren();ovA.replaceChildren();ovP=null;ovRs=[]};
+  const ocultar=()=>{panel.hidden=true;limpiarOv()};
   const ajustar=()=>{raf=0;const k=tf.k;circ.forEach(([c,r])=>c.setAttribute('r',r/Math.sqrt(k)));txt.forEach(([t,f])=>t.style.fontSize=(f/k)+'px');zg.querySelectorAll('text').forEach(t=>t.setAttribute('stroke-width',3/k))};
   const zoom=d3.zoom().scaleExtent([0.25,16]).filter(e=>e.type==='wheel'?(e.ctrlKey||e.metaKey):!e.button)
    .on('start',()=>{el.style.cursor='grabbing'}).on('end',()=>{el.style.cursor='grab'})
-   .on('zoom',e=>{tf=e.transform;zg.setAttribute('transform',tf);if(!pinned)panel.hidden=true;else{panel.hidden=true;pinned=false}if(!raf)raf=requestAnimationFrame(ajustar)});
+   .on('zoom',e=>{tf=e.transform;zg.setAttribute('transform',tf);ocultar();pinned=false;if(!raf)raf=requestAnimationFrame(ajustar)});
   d3.select(svg).call(zoom).on('dblclick.zoom',null);
   const sel3=d3.select(svg).transition().duration(450);
   document.getElementById('lmzin').onclick=()=>d3.select(svg).transition().duration(300).call(zoom.scaleBy,1.6,[w/2,h/2]);
@@ -327,19 +357,23 @@ cargar('lineas').catch(e=>{document.getElementById('linerr').textContent='No se 
   const qS=d3.quadtree(pts.filter(d=>d.mine&&!d.tramo),d=>d.px,d=>d.py), qT=d3.quadtree(pts.filter(d=>d.tramo),d=>d.px,d=>d.py), qtR=d3.quadtree(pts.filter(d=>!d.mine),d=>d.px,d=>d.py);
   const buscar=(x,y)=>{const k=tf.k;return qS.find(x,y,6/k)||qT.find(x,y,14/k)||qtR.find(x,y,8/k)};
   let pinned=false;
+  const recorridos=p=>{const red=RED.find(r=>Math.abs(r.la-p.la)<1e-5&&Math.abs(r.lo-p.lo)<1e-5);return red?red.rs:[id]};
   function contenido(p){
    if(p.tramo) return `<div class="t">${p.n}</div><div>Línea ${id}: ${[['Punta mañana',p.am,p.f&1],['Punta tarde',p.pm,p.f&2],['Valle',p.va,p.f&4]].map(([k,v,ap])=>`${k} ${v==null?'—':v.toFixed(1)+' km/h'+(ap?' (aprox.)':'')}`).join(' · ')}</div><div style="margin-top:4px;color:var(--ink2)">Pasa el cursor sobre un paradero para ver sus recorridos.</div>`;
-   const red=RED.find(r=>Math.abs(r.la-p.la)<1e-5&&Math.abs(r.lo-p.lo)<1e-5);
-   const rs=red?red.rs:[id];
+   const rs=recorridos(p);
    let t=`<div class="t">${p.n}</div>`;
    t+=`<div style="margin-top:4px;color:var(--ink2)">${rs.length} recorrido${rs.length>1?'s':''} — ${pinned?'elige uno:':'haz clic para elegir'}</div><div class="r">`+rs.map(r=>`<button data-r="${r}" class="${r===id?'cur':''}" title="${LN[r]?LN[r].nombre:''}">${r}</button>`).join('')+'</div>';
    return t;
   }
   function mostrar(p){panel.innerHTML=contenido(p);panel.hidden=false;const pw=panel.offsetWidth,ph=panel.offsetHeight;const [qx,qy]=tf.apply([p.px,p.py]);panel.style.left=Math.min(w-pw-4,Math.max(4,qx+12))+'px';panel.style.top=Math.max(4,(qy-ph-10<0?qy+14:qy-ph-10))+'px';
-   panel.querySelectorAll('button[data-r]').forEach(b=>b.onclick=()=>{if(LN[b.dataset.r]){elegir(b.dataset.r);document.getElementById('linea-card').scrollIntoView({behavior:'smooth'})}});}
-  svg.addEventListener('pointermove',e=>{if(pinned)return;const r=svg.getBoundingClientRect(),sx=w/r.width;const [mx,my]=tf.invert([(e.clientX-r.left)*sx,(e.clientY-r.top)*sx]);const p=buscar(mx,my);if(p)mostrar(p);else panel.hidden=true});
-  svg.addEventListener('pointerleave',e=>{if(!pinned&&!panel.contains(e.relatedTarget))panel.hidden=true});
-  svg.addEventListener('click',e=>{const r=svg.getBoundingClientRect(),sx=w/r.width;const [mx,my]=tf.invert([(e.clientX-r.left)*sx,(e.clientY-r.top)*sx]);const p=buscar(mx,my);if(p){pinned=true;mostrar(p)}else{pinned=false;panel.hidden=true}});
+   if(p.tramo) limpiarOv(); else if(ovP!==p||!ovRs.length) dibujarOv(p,recorridos(p),null);
+   panel.querySelectorAll('button[data-r]').forEach(b=>{
+    const r=b.dataset.r, on=()=>{if(ovP)dibujarOv(ovP,ovRs,r)}, off=()=>{if(ovP)dibujarOv(ovP,ovRs,null)};
+    b.onmouseenter=on; b.onfocus=on; b.onmouseleave=off; b.onblur=off;
+    b.onclick=()=>{if(LN[r]){elegir(r);document.getElementById('linea-card').scrollIntoView({behavior:'smooth'})}}});}
+  svg.addEventListener('pointermove',e=>{if(pinned)return;const r=svg.getBoundingClientRect(),sx=w/r.width;const [mx,my]=tf.invert([(e.clientX-r.left)*sx,(e.clientY-r.top)*sx]);const p=buscar(mx,my);if(p)mostrar(p);else ocultar()});
+  svg.addEventListener('pointerleave',e=>{if(!pinned&&!panel.contains(e.relatedTarget))ocultar()});
+  svg.addEventListener('click',e=>{const r=svg.getBoundingClientRect(),sx=w/r.width;const [mx,my]=tf.invert([(e.clientX-r.left)*sx,(e.clientY-r.top)*sx]);const p=buscar(mx,my);if(p){pinned=true;mostrar(p)}else{pinned=false;ocultar()}});
  }
  const inp=document.getElementById('lin'), ul=document.getElementById('linlist');
  const norm=t=>t.normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase();
