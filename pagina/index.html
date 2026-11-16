@@ -168,7 +168,10 @@ document.getElementById('kpis').innerHTML=k.map(([l,v,d])=>`<div class="kpi"><di
 // serie
 const ser=V.serie.map(([t,a,b,c,oc,ot,ocm])=>({t:parse(t),total:a,mov:b,sin:c,oc:oc??null,ot:ot??null,ocm:ocm??null}));
 let g=0;ser.forEach((d,i)=>{if(i>0&&(d.t-ser[i-1].t)>30*60000)g++;d.g=g});
-const dens=ser.filter(d=>d.oc!=null), rala=ser.filter(d=>d.oc==null);
+const dens=ser.filter(d=>d.oc!=null);
+// Círculos solo para las capturas antiguas (antes de las capturas cada 10 min);
+// después, una captura sin dato se omite y la línea la salta.
+const t0=dens.length?dens[0].t:null, rala=ser.filter(d=>d.oc==null&&(t0==null||d.t<t0));
 const F=V.flota_7d;
 document.getElementById('serie').append(Plot.plot({width:W('serie'),height:280,marginLeft:48,marginRight:12,style:{background:'transparent',fontSize:'12px'},
  x:{type:'time',label:null,ticks:d3.timeDay.every(1),tickFormat:es.format('%a %e')},y:{grid:true,label:'buses',tickFormat:fmt,domain:[0,F?F*1.08:undefined]},

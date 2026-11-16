@@ -20,6 +20,14 @@ ops = json.loads(local_o.read_text(encoding='utf-8') if local_o.exists()
 op = h[h.nivel == 'operador'].copy()
 fin = op.timestamp.max()
 ini = fin - pd.Timedelta(days=7)
+
+# Capturas demasiado juntas (p. ej. cron de respaldo de GitHub 1 min antes de la
+# de cron-job.org): se descarta la primera del par. Si no, la ventana de
+# "operando" se acorta y la serie muestra muescas.
+MIN_SEPARACION_MIN = 7
+tsh = pd.Series(sorted(op.timestamp.unique()))
+descartar = set(tsh[(tsh.shift(-1) - tsh).dt.total_seconds() / 60 < MIN_SEPARACION_MIN])
+op = op[~op.timestamp.isin(descartar)]
 w = op[op.timestamp > ini]
 agg = w.groupby('timestamp').agg(total=('total_buses', 'sum'), mov=('buses_en_movimiento', 'sum'),
                                  sin=('buses_sin_senal', 'sum'), nsin=('buses_sin_senal', 'count')).reset_index()
@@ -42,18 +50,24 @@ perfil = [{'h': k, 'historico': int(hist.get(k, 0)), 'semana': (int(rec[k]) if k
 # Flota de referencia: buses distintos (patentes) con señal en los últimos 7 días
 r = pd.read_parquet(local_r if local_r.exists() else BASE + 'data/data/datos_recientes.parquet')
 r7 = r[r.timestamp > r.timestamp.max() - pd.Timedelta(days=7)]
+r7 = r7.drop_duplicates(subset=['patente', 'timestamp'], keep='last')   # una fila por bus y captura
+r7 = r7[~r7.timestamp.isin(descartar)]
 flota_7d = int(r7.patente.nunique())
 flota_op = r7.groupby('operador').patente.nunique()   # un bus puede aparecer en 2 operadores si cambió de unidad
 
 # Buses operando (se movieron en los últimos ~20 min), solo donde hay capturas cada ~10 min
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from monitor import marcar_operando  # noqa: E402
+from monitor import marcar_operando, VENTANA_OPERANDO_MIN  # noqa: E402
 m = marcar_operando(r7)
 m['opc'] = m.operando & m.comercial
 m['opt'] = m.operando & ~m.comercial
 m['opc_mov'] = m.opc & (m.estado == 'en_movimiento')
 tsu = pd.Series(sorted(m.timestamp.unique()))
-densa = set(tsu[(tsu.diff().dt.total_seconds() / 60 <= 15) & (tsu.diff(2).dt.total_seconds() / 60 <= 30)])
+# Captura "densa": la anterior está dentro de la ventana de "operando" (tolera
+# que falte una captura de 10 min) y hay al menos dos previas recientes.
+dmin = tsu.diff().dt.total_seconds() / 60
+d2min = tsu.diff(2).dt.total_seconds() / 60
+densa = set(tsu[(dmin <= VENTANA_OPERANDO_MIN) & (d2min <= 40)])
 opx = m.groupby('timestamp')[['opc', 'opt', 'opc_mov']].sum()
 ult = m[m.timestamp == m.timestamp.max()].groupby('operador')[['opc', 'opt']].sum()
 

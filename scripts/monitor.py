@@ -158,10 +158,18 @@ def parsear_posiciones(data):
 DESPLAZAMIENTO_MIN_M = 150
 VENTANA_OPERANDO_MIN = 25
 
+# Separación mínima entre capturas guardadas. Si llega una captura con la misma
+# `fecha_consulta` que la última (la API devolvió la misma respuesta) o a menos de
+# este intervalo (p. ej. el cron de respaldo de GitHub justo después del de
+# cron-job.org), se descarta: duplicaba buses en datos_recientes y producía saltos
+# en "buses en servicio" y muescas al acortar la ventana de "operando".
+MIN_SEPARACION_MIN = 7
+
 
 def marcar_operando(df):
     """Agrega columnas se_movio, operando y comercial a un DataFrame con varias capturas."""
     import numpy as np
+    df = df.drop_duplicates(subset=['patente', 'timestamp'], keep='last')
     df = df.sort_values(['patente', 'timestamp']).copy()
     if 'senal_reciente' in df:
         fresh = df['senal_reciente'].astype(str).eq('True') | (df['senal_reciente'] == True)  # noqa: E712
@@ -260,6 +268,9 @@ def guardar_datos_recientes(df_nuevo):
         limite_tiempo = timestamp_referencia - timedelta(hours=RETENER_HORAS)
         df_combined = df_combined[df_combined['timestamp'] >= limite_tiempo]
 
+    # Un bus, una fila por captura (limpia también duplicados ya guardados)
+    df_combined = df_combined.drop_duplicates(subset=['patente', 'timestamp'], keep='last')
+
     # Guardar
     df_combined.to_parquet(ARCHIVO_RECIENTES, index=False)
 
@@ -324,6 +335,24 @@ def analizar_ventana_movil():
     return resumen
 
 
+def captura_repetida(ts_nuevo):
+    """True si ya hay una captura guardada a menos de MIN_SEPARACION_MIN de ts_nuevo."""
+    if not ARCHIVO_RECIENTES.exists():
+        return False
+    ts = pd.read_parquet(ARCHIVO_RECIENTES, columns=['timestamp'])['timestamp']
+    if ts.empty:
+        return False
+    return bool((abs(ts.drop_duplicates() - ts_nuevo) < timedelta(minutes=MIN_SEPARACION_MIN)).any())
+
+
+def salida_github(nuevo):
+    """Avisa al workflow si hubo una captura nueva (para publicar o no)."""
+    ruta = os.getenv('GITHUB_OUTPUT')
+    if ruta:
+        with open(ruta, 'a') as f:
+            f.write(f"nuevo={'true' if nuevo else 'false'}\n")
+
+
 def generar_reporte():
     """
     Genera reporte de la ejecución actual
@@ -349,6 +378,12 @@ def generar_reporte():
         return False
     
     print(f"✅ {len(df_buses)} buses procesados")
+
+    ts_nuevo = df_buses['timestamp'].iloc[0]
+    if captura_repetida(ts_nuevo):
+        print(f"⏭️  Captura {ts_nuevo} repetida o a menos de {MIN_SEPARACION_MIN} min "
+              "de la última guardada: no se guarda ni se publica")
+        return False
 
     # Marcar buses operando usando las capturas de los últimos ~30 minutos
     if ARCHIVO_RECIENTES.exists():
@@ -413,4 +448,4 @@ def generar_reporte():
 
 
 if __name__ == "__main__":
-    generar_reporte()
+    salida_github(generar_reporte())

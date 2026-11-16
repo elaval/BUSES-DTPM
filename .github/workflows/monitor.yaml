@@ -5,10 +5,11 @@ on:
   # (workflow_dispatch). El cron de GitHub es poco confiable para
   # frecuencias altas: en la práctica corría ~4 veces al día.
   workflow_dispatch:
-  # Respaldo: si el disparador externo falla, al menos una captura por hora
-  # (cuando GitHub la lance).
+  # Respaldo: si el disparador externo falla, al menos una captura cada 3 horas
+  # (cuando GitHub la lance). Era cada hora, pero GitHub la lanza con atraso y
+  # caía encima de las de cron-job.org (capturas repetidas o en cola canceladas).
   schedule:
-    - cron: '17 * * * *'
+    - cron: '17 */3 * * *'
 
 # Nunca dos capturas a la vez: evita choques al publicar los datos.
 concurrency:
@@ -51,12 +52,15 @@ jobs:
       run: pip install pandas pyarrow requests
 
     - name: Run monitor
+      id: monitor
       env:
         DTPM_USUARIO: ${{ secrets.DTPM_USUARIO }}
         DTPM_CLAVE: ${{ secrets.DTPM_CLAVE }}
       run: python scripts/monitor.py
 
+    # Solo si hubo una captura nueva (monitor.py descarta las repetidas)
     - name: Publicar datos en la rama data (sin historial)
+      if: steps.monitor.outputs.nuevo == 'true'
       env:
         GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       run: |
