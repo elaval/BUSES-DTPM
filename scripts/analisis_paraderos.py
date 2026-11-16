@@ -34,6 +34,10 @@ Método:
     transmisiones GPS) de los buses en movimiento en ese tramo. No incluye el
     tiempo detenido en paraderos: es la velocidad de circulación, no la comercial.
   - Punta = 7-9 h y 18-20 h; valle = 11-16 h.
+  - En lineas.json, un tramo con menos de MIN_LINEA registros en un período toma la
+    mediana de sus registros junto con los de 1 (o, si no alcanza, 2) tramos vecinos
+    por lado, y queda marcado como aproximado. Es transitorio: en cuanto el tramo
+    junta sus propios registros, usa su valor propio.
 """
 import argparse, io, json, re, urllib.request, warnings, zipfile
 from pathlib import Path
@@ -52,6 +56,8 @@ LAT0 = -33.45
 KX, KY = np.cos(np.radians(LAT0)) * 111320, 110540
 MIN_RED = {'am': 30, 'pm': 30, 'valle': 60}   # mínimos de registros por tramo de la red
 MIN_LINEA = 8                                  # mínimo por tramo y período en una línea
+VECINOS_MAX = 2                                # tramos vecinos (por lado) para aproximar
+APROX = {'am': 1, 'pm': 2, 'valle': 4}         # bits de "valor aproximado" en lineas.json
 
 
 def a_xy(lon, lat):
@@ -195,6 +201,8 @@ def main():
     # --- por tramo de cada recorrido
     v = o.groupby(['ruta', 'dir', 'k', 'periodo']).velocidad_promedio.agg(['median', 'size']).unstack()
     v.columns = [f'{m}_{p}' for m, p in v.columns]
+    # registros de cada tramo, para aproximar con los vecinos los que tienen pocos
+    regs = {key: g.to_numpy() for key, g in o.groupby(['ruta', 'dir', 'periodo', 'k']).velocidad_promedio}
 
     # --- tramos de la red: mismo par de paraderos, todas las líneas juntas
     def par_id(r, dr, k):
@@ -287,14 +295,27 @@ def main():
         par = [[round(ch[i] / 1000, 2), limpio(s.stop_name.iloc[i]), round(s.stop_lat.iloc[i], 5), round(s.stop_lon.iloc[i], 5)]
                for i in range(len(s))]
         tr = []
-        for k in range(len(s) - 1):
+        n_tramos = len(s) - 1
+        for k in range(n_tramos):
+            def mediana(x):
+                m = np.nanmedian(x) if np.isfinite(x).any() else np.nan   # hay registros sin velocidad
+                return None if np.isnan(m) else round(float(m), 1)
+
             def val(per):
-                try:
-                    row = v.loc[(r, dr, k)]
-                    return round(float(row[f'median_{per}']), 1) if row[f'size_{per}'] >= MIN_LINEA else None
-                except KeyError:
-                    return None
-            tr.append([k, val('am'), val('pm'), val('valle'), coords_tramo(r, dr, k, tol=15)])
+                """(velocidad, aproximada): propia si hay MIN_LINEA registros; si no, con vecinos."""
+                propios = regs.get((r, dr, per, k))
+                if propios is not None and len(propios) >= MIN_LINEA:
+                    return mediana(propios), False
+                for w_ in range(1, VECINOS_MAX + 1):
+                    x = [regs.get((r, dr, per, j)) for j in range(max(0, k - w_), min(n_tramos, k + w_ + 1))]
+                    x = [a_ for a_ in x if a_ is not None]
+                    if x and sum(map(len, x)) >= MIN_LINEA:
+                        m = mediana(np.concatenate(x))
+                        return (m, m is not None)
+                return None, False
+            (am, xa), (pm, xp), (va, xv) = val('am'), val('pm'), val('valle')
+            aprox = APROX['am'] * xa + APROX['pm'] * xp + APROX['valle'] * xv
+            tr.append([k, am, pm, va, coords_tramo(r, dr, k, tol=15), aprox])
         L.setdefault(r, {'nombre': routes.get(r, ''), 'operador': pub2op.get(r, ''), 'buses_hora': bh[r], 'sentidos': {}})
         L[r]['sentidos'][dr] = {'destino': R['destino'], 'paraderos': par, 'tramos': tr}
 

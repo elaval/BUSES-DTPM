@@ -132,7 +132,7 @@ figure{margin:0}
 <h2 style="font-size:15px">Buses en servicio por hora</h2>
 <p class="note">Mediana por hora de un día hábil (may–nov 2026). Aproximación: buses del recorrido en movimiento o avanzando lento en el momento de cada captura; con solo ~4 capturas al día en ese período no se puede aplicar el criterio exacto de "en servicio", que subestima levemente a los buses completamente detenidos. Se recalculará con las capturas cada 10 minutos.</p>
 <div id="linbuses"></div>
-<p class="note" style="margin-top:14px">Cada punto es un tramo entre dos paraderos consecutivos, ubicado en su punto medio. Curvas suavizadas con la mediana de 3 tramos; al pasar el cursor se ve el valor de cada tramo.</p><div class="legend"><span><i class="sw" style="background:var(--ctx)"></i>Valle (11–16 h)</span><span><i class="sw" style="background:var(--s1)"></i>Punta mañana (7–9 h)</span><span><i class="sw" style="background:var(--s2)"></i>Punta tarde (18–20 h)</span></div>
+<p class="note" style="margin-top:14px">Cada punto es un tramo entre dos paraderos consecutivos, ubicado en su punto medio. Curvas suavizadas con la mediana de 3 tramos; al pasar el cursor se ve el valor de cada tramo. Círculos huecos y trazo claro: valor aproximado, porque el tramo aún tiene pocos registros y se calcula junto con sus vecinos; se reemplaza por su valor propio a medida que llegan datos.</p><div class="legend"><span><i class="sw" style="background:var(--ctx)"></i>Valle (11–16 h)</span><span><i class="sw" style="background:var(--s1)"></i>Punta mañana (7–9 h)</span><span><i class="sw" style="background:var(--s2)"></i>Punta tarde (18–20 h)</span></div>
 <div id="linsent"></div>
 </div>
 
@@ -241,7 +241,8 @@ cargar('lineas').catch(e=>{document.getElementById('linerr').textContent='No se 
   document.getElementById('linhead').innerHTML=`<p style="margin:0 0 10px"><b>${id}</b> · ${L.nombre} <span style="color:var(--ink2)">· operador: ${L.operador||'—'}</span></p>`;
   const bh=L.buses_hora, pk=Math.max(bh[7],bh[8],bh[18],bh[19]), vl=Math.round(med(bh.slice(11,16)));
   const all=Object.values(L.sentidos).flatMap(s=>s.tramos);
-  const vp=med(all.map(r=>r[1]==null&&r[2]==null?null:Math.min(r[1]??99,r[2]??99))), vv=med(all.map(r=>r[3]));
+  const pr=(r,i,b)=>((r[5]||0)&b)?null:r[i];   // solo valores propios (no aproximados)
+  const vp=med(all.map(r=>{const a=pr(r,1,1),p=pr(r,2,2);return a==null&&p==null?null:Math.min(a??99,p??99)})), vv=med(all.map(r=>pr(r,3,4)));
   const km=Object.values(L.sentidos).map(s=>s.paraderos.at(-1)[0]);
   document.getElementById('linkpis').innerHTML=[['Buses en servicio en punta',pk,'máximo 7–9 h / 18–20 h (aprox.)'],['Buses en servicio en valle',vl,'mediana 11–16 h (aprox.)'],['Velocidad en punta',vp==null?'—':vp.toFixed(1)+' km/h','mediana de tramos, peor punta'],['Velocidad en valle',vv==null?'—':vv.toFixed(1)+' km/h','mediana de tramos'],['Largo aprox.',km.map(k=>k.toFixed(1)).join(' / ')+' km','por sentido']].map(([l,v,d])=>`<div class="kpi"><div class="l">${l}</div><div class="v" style="font-size:22px">${v}</div><div class="d">${d}</div></div>`).join('');
   lmS=Object.keys(L.sentidos)[0];
@@ -254,20 +255,23 @@ cargar('lineas').catch(e=>{document.getElementById('linerr').textContent='No se 
   const es2=document.getElementById('linsent'); es2.innerHTML='';
   for(const [d,S2] of Object.entries(L.sentidos)){
    const PA=S2.paraderos;
-   const P2=S2.tramos.map(([k,am,pm,va])=>({km:(PA[k][0]+PA[k+1][0])/2,k0:PA[k][0],k1:PA[k+1][0],n:nomTramo(PA[k][1],PA[k+1][1]),am,pm,va}));
+   const P2=S2.tramos.map(([k,am,pm,va,,f=0])=>({km:(PA[k][0]+PA[k+1][0])/2,k0:PA[k][0],k1:PA[k+1][0],n:nomTramo(PA[k][1],PA[k+1][1]),am,pm,va,xa:!!(f&1),xp:!!(f&2),xv:!!(f&4)}));
    const sm=key=>P2.map((r,i)=>{const w=P2.slice(Math.max(0,i-1),i+2).map(q=>q[key]).filter(x=>x!=null);return r[key]==null?null:med(w)});
    const sv={va:sm('va'),am:sm('am'),pm:sm('pm')};
-   const lgAll=P2.flatMap((r,i)=>[['Valle',sv.va[i],r.va],['Punta mañana',sv.am[i],r.am],['Punta tarde',sv.pm[i],r.pm]].map(([k,v,raw])=>({km:r.km,n:r.n,k,v:v??NaN,raw})));
+   const lgAll=P2.flatMap((r,i)=>[['Valle',sv.va[i],r.va,r.xv],['Punta mañana',sv.am[i],r.am,r.xa],['Punta tarde',sv.pm[i],r.pm,r.xp]].map(([k,v,raw,ap])=>({km:r.km,n:r.n,k,v:v??NaN,raw,ap})));
+   const lgOwn=lgAll.map(q=>q.ap?{...q,v:NaN}:q);   // trazo firme: solo tramos con datos propios
    const lg=lgAll.filter(q=>!isNaN(q.v));
    const box=document.createElement('div'); box.style.marginTop='14px';
-   const worst=P2.filter(r=>r.am!=null||r.pm!=null).map(r=>({...r,p:Math.min(r.am??99,r.pm??99)})).sort((a,b)=>a.p-b.p).slice(0,3);
+   const worst=P2.map(r=>({...r,a:r.xa?null:r.am,b:r.xp?null:r.pm})).filter(r=>r.a!=null||r.b!=null).map(r=>({...r,p:Math.min(r.a??99,r.b??99)})).sort((a,b)=>a.p-b.p).slice(0,3);
    box.innerHTML=`<h2 style="font-size:15px">Velocidad por tramo a lo largo del recorrido · hacia ${S2.destino} (${d==='I'?'ida':'regreso'})</h2><p class="note">${lg.length?'Tramos más lentos en punta: '+worst.map(w=>`${w.n} (${w.p.toFixed(1)} km/h)`).join('; '):'Sin datos suficientes para este sentido.'}</p>`;
    es2.append(box);
    if(!lg.length) continue;
    const w=W('linsent');
    box.append(Plot.plot({width:w,height:230,marginLeft:40,style:{background:'transparent',fontSize:'12px'},x:{label:'km desde el inicio',grid:false},y:{grid:true,label:'km/h',domain:[0,Math.max(30,d3.max(lg,q=>q.v))]},
     color:{domain:['Valle','Punta mañana','Punta tarde'],range:[C.ctx,C.s1,C.s2]},
-    marks:[Plot.lineY(lgAll,{x:'km',y:'v',z:'k',stroke:'k',strokeWidth:2}),Plot.dot(lg,{x:'km',y:'v',fill:'k',r:1.5}),Plot.tip(lg,Plot.pointer({x:'km',y:'v',title:q=>`Tramo ${q.n}\nkm ${q.km.toFixed(1)} · ${q.k}: ${q.raw.toFixed(1)} km/h`}))]}));
+    marks:[Plot.lineY(lgAll,{x:'km',y:'v',z:'k',stroke:'k',strokeWidth:2,strokeOpacity:0.3}),Plot.lineY(lgOwn,{x:'km',y:'v',z:'k',stroke:'k',strokeWidth:2}),
+     Plot.dot(lg.filter(q=>!q.ap),{x:'km',y:'v',fill:'k',r:1.5}),Plot.dot(lg.filter(q=>q.ap),{x:'km',y:'v',stroke:'k',fill:'var(--surface)',strokeWidth:1,r:2}),
+     Plot.tip(lg,Plot.pointer({x:'km',y:'v',title:q=>`Tramo ${q.n}\nkm ${q.km.toFixed(1)} · ${q.k}: ${q.raw.toFixed(1)} km/h${q.ap?' (aproximado, con tramos vecinos)':''}`}))]}));
   }
  }
  document.querySelectorAll('#lmper button').forEach(b=>b.onclick=()=>{lmP=b.dataset.p;document.querySelectorAll('#lmper button').forEach(x=>x.classList.toggle('on',x===b));mapaLinea(cur)});
@@ -276,23 +280,28 @@ cargar('lineas').catch(e=>{document.getElementById('linerr').textContent='No se 
   const L=LN[id], el=document.getElementById('linmapa'); el.innerHTML='';
   const SS=L.sentidos[lmS];
   const P2=SS.paraderos.map(r=>({km:r[0],n:r[1],la:r[2],lo:r[3],stop:true}));
-  const val=r=>lmP==='pk'?((r.am==null&&r.pm==null)?null:Math.min(r.am??99,r.pm??99)):r[lmP];
-  const TR=SS.tramos.map(([k,am,pm,va,cs])=>{const t={k,am,pm,va,cs,n:'Tramo: '+nomTramo(P2[k].n,P2[k+1].n)};t.v=val(t);t.mid=cs[Math.floor(cs.length/2)];return t});
+  // [velocidad, aproximada]; en "peor punta" se prefieren los valores propios
+  const val=r=>{if(lmP==='pk'){const a=r.f&1?null:r.am,p=r.f&2?null:r.pm;
+     if(a!=null||p!=null) return [Math.min(a??99,p??99),false];
+     return (r.am==null&&r.pm==null)?[null,false]:[Math.min(r.am??99,r.pm??99),true]}
+    const b={am:1,pm:2,va:4}[lmP]; return [r[lmP],r[lmP]!=null&&!!(r.f&b)]};
+  const TR=SS.tramos.map(([k,am,pm,va,cs,f=0])=>{const t={k,am,pm,va,cs,f,n:'Tramo: '+nomTramo(P2[k].n,P2[k+1].n)};[t.v,t.ap]=val(t);t.mid=cs[Math.floor(cs.length/2)];return t});
   const lab={pk:'peor punta',am:'punta mañana',pm:'punta tarde',va:'valle'}[lmP];
-  document.getElementById('lmleg').innerHTML='<div class="legend">Km/h de esta línea en '+lab+': '+['18 o más','14–18','11–14','8–11','menos de 8'].map((l,i)=>`<span><i class="sw" style="background:${seqL[i]}"></i>${l}</span>`).join('')+'<span><i class="sw" style="background:var(--surface);border:1px solid var(--muted)"></i>sin datos</span></div>';
+  document.getElementById('lmleg').innerHTML='<div class="legend">Km/h de esta línea en '+lab+': '+['18 o más','14–18','11–14','8–11','menos de 8'].map((l,i)=>`<span><i class="sw" style="background:${seqL[i]}"></i>${l}</span>`).join('')+'<span><i class="sw" style="background:var(--surface);border:1px solid var(--muted)"></i>sin datos</span><span><i class="sw" style="background:'+seqL[2]+';opacity:0.4"></i>tono claro: aproximado (con tramos vecinos)</span></div>';
   const w=W('linmapa'), h=Math.round(Math.min(w*0.85,640));
   const lats=P2.map(r=>r.la), lons=P2.map(r=>r.lo), pad=0.012;
   const box={type:'MultiPoint',coordinates:[[d3.min(lons)-pad,d3.min(lats)-pad],[d3.max(lons)+pad,d3.max(lats)+pad]]};
   const proj=d3.geoMercator().fitExtent([[10,10],[w-10,h-10]],box);
   const [x0,y0]=proj.invert([0,h]), [x1,y1]=proj.invert([w,0]);
   const vis=RED;
-  const tp=TR.flatMap(t=>t.cs.map(([lo,la])=>({lo,la,k:t.k,v:t.v})));
+  const tp=TR.flatMap(t=>t.cs.map(([lo,la])=>({lo,la,k:t.k,v:t.v,ap:t.ap})));
   const plot=Plot.plot({width:w,height:h,style:{background:'transparent',fontSize:'11px'},projection:{type:()=>proj,clip:false},
    marks:[Plot.geo(S.comunas,{stroke:C.muted,strokeWidth:0.6,strokeOpacity:0.6,fill:'none'}),
     Plot.text(S.comunas.features,Plot.centroid({text:d=>d.properties.n,fill:C.muted,fontSize:10,stroke:'var(--surface)',strokeWidth:3,paintOrder:'stroke'})),
     Plot.dot(vis,{x:'lo',y:'la',r:1.8,fill:C.ctx,fillOpacity:0.7}),
     Plot.line(tp,{x:'lo',y:'la',z:'k',stroke:C.muted,strokeWidth:7,strokeLinecap:'round'}),
-    Plot.line(tp,{x:'lo',y:'la',z:'k',stroke:d=>d.v==null?C.surf:seqL[binL(d.v)],strokeWidth:5,strokeLinecap:'round'}),
+    Plot.line(tp,{x:'lo',y:'la',z:'k',stroke:C.surf,strokeWidth:5,strokeLinecap:'round'}),   // fondo: los tramos aproximados se ven en tono claro
+    Plot.line(tp,{x:'lo',y:'la',z:'k',stroke:d=>d.v==null?C.surf:seqL[binL(d.v)],strokeOpacity:d=>d.ap?0.4:1,strokeWidth:5,strokeLinecap:'round'}),
     Plot.dot(P2,{x:'lo',y:'la',r:1.6,fill:C.ink2}),
     Plot.text([P2[0],P2.at(-1)],{x:'lo',y:'la',text:(d,i)=>i?'Fin':'Inicio',dy:-12,fontWeight:600,fill:'currentColor',stroke:'var(--surface)',strokeWidth:3,paintOrder:'stroke'})]});
   el.append(plot);
@@ -319,7 +328,7 @@ cargar('lineas').catch(e=>{document.getElementById('linerr').textContent='No se 
   const buscar=(x,y)=>{const k=tf.k;return qS.find(x,y,6/k)||qT.find(x,y,14/k)||qtR.find(x,y,8/k)};
   let pinned=false;
   function contenido(p){
-   if(p.tramo) return `<div class="t">${p.n}</div><div>Línea ${id}: ${[['Punta mañana',p.am],['Punta tarde',p.pm],['Valle',p.va]].map(([k,v])=>`${k} ${v==null?'—':v.toFixed(1)+' km/h'}`).join(' · ')}</div><div style="margin-top:4px;color:var(--ink2)">Pasa el cursor sobre un paradero para ver sus recorridos.</div>`;
+   if(p.tramo) return `<div class="t">${p.n}</div><div>Línea ${id}: ${[['Punta mañana',p.am,p.f&1],['Punta tarde',p.pm,p.f&2],['Valle',p.va,p.f&4]].map(([k,v,ap])=>`${k} ${v==null?'—':v.toFixed(1)+' km/h'+(ap?' (aprox.)':'')}`).join(' · ')}</div><div style="margin-top:4px;color:var(--ink2)">Pasa el cursor sobre un paradero para ver sus recorridos.</div>`;
    const red=RED.find(r=>Math.abs(r.la-p.la)<1e-5&&Math.abs(r.lo-p.lo)<1e-5);
    const rs=red?red.rs:[id];
    let t=`<div class="t">${p.n}</div>`;
