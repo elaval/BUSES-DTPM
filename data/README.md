@@ -32,8 +32,9 @@ Tiene las mismas columnas que `datos_recientes.parquet`, sin `senal_reciente`
 Desde el 15 de noviembre, cada día completo se guarda como
 `archivo_gps_AAAA-MM-DD.parquet` (~4 MB) en el Release
 [`archivo-gps-diario`](https://github.com/elaval/BUSES-DTPM/releases/tag/archivo-gps-diario)
-(`archivo-diario.yaml`, cada madrugada). Con ambos Releases se reconstruye todo el
-detalle bus por bus.
+(lo sube el monitor en la primera captura después de medianoche; `archivo-diario.yaml`
+revisa cada madrugada que no falte ninguno). `data/archivados.json` registra los días
+ya subidos. Con ambos Releases se reconstruye todo el detalle bus por bus.
 
 Releases de apoyo: [`insumos-dtpm`](https://github.com/elaval/BUSES-DTPM/releases/tag/insumos-dtpm)
 (GTFS y archivo oficial de códigos de servicio) y

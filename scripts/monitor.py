@@ -13,6 +13,8 @@ from zoneinfo import ZoneInfo
 import os
 from pathlib import Path
 
+from archivo_gps import archivar_pendientes, escribir_parquet
+
 # Cargar variables de entorno desde .env (solo en ambiente local)
 try:
     from dotenv import load_dotenv
@@ -30,6 +32,7 @@ DATA_DIR.mkdir(exist_ok=True)
 
 ARCHIVO_HISTORICO = DATA_DIR / 'metricas_historicas.parquet'
 ARCHIVO_RECIENTES = DATA_DIR / 'datos_recientes.parquet'
+ARCHIVO_REGISTRO = DATA_DIR / 'archivados.json'   # días ya subidos al archivo diario
 
 # Constantes
 VENTANA_HORAS = 1  # Ventana móvil de análisis
@@ -249,23 +252,6 @@ def calcular_metricas(df):
     return metricas
 
 
-def compactar(df):
-    """Formato compacto para guardar datos bus por bus.
-
-    float32 (≈0,4 m de precisión en las coordenadas) y filas ordenadas por bus:
-    con compresión zstd, una semana de capturas cada 10 min pesa ~30 MB en vez de
-    ~115 MB (GitHub rechaza archivos de más de 100 MB).
-    """
-    df = df.copy()
-    for c in df.select_dtypes('float64').columns:
-        df[c] = df[c].astype('float32')
-    return df.sort_values(['patente', 'timestamp'], kind='stable')
-
-
-def escribir_parquet(df, ruta):
-    compactar(df).to_parquet(ruta, index=False, compression='zstd', compression_level=9)
-
-
 def guardar_datos_recientes(df_nuevo):
     """
     Guarda datos recientes con garbage collection (últimos 7 días)
@@ -445,6 +431,16 @@ def generar_reporte():
         print(f"   - Datos recientes: {n_recientes:,} registros (ventana: {dias_config:.0f} días)")
 
     print(f"   - Histórico métricas: {n_historico:,} registros totales")
+
+    # Archivo permanente: sube cada día completo antes de que salga de la ventana
+    # de 7 días. Solo en GitHub Actions; un error aquí no detiene la captura.
+    if os.getenv('GITHUB_ACTIONS') == 'true':
+        try:
+            n = archivar_pendientes(df_recientes_guardados, registro=ARCHIVO_REGISTRO)
+            if n:
+                print(f"   - Archivo diario: {n} día(s) subido(s)")
+        except Exception as e:
+            print(f"   ⚠️  Archivo diario: {e} (se reintenta en la próxima captura)")
     
     # Análisis ventana móvil
     print(f"\n🔍 Análisis ventana móvil (última {VENTANA_HORAS}h):")

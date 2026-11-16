@@ -1,8 +1,9 @@
 name: Archivo diario GPS
 
-# Guarda cada día completo de datos bus por bus en el Release `archivo-gps-diario`
-# antes de que salga de la ventana de 7 días de datos_recientes.parquet.
-# Si una corrida falla, la siguiente recupera los días pendientes.
+# RESPALDO. Lo normal es que el monitor suba cada día completo al Release
+# `archivo-gps-diario` en la primera captura después de medianoche (ver
+# scripts/archivo_gps.py). Este workflow revisa una vez al día que no falte ninguno
+# antes de que salga de la ventana de 7 días; si ya están, no hace nada.
 on:
   schedule:
     - cron: '35 6 * * *'   # ~03:35 hora de Chile en verano (02:35 en invierno)

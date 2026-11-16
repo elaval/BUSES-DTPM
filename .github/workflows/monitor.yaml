@@ -38,6 +38,7 @@ jobs:
         if git ls-remote --exit-code --heads origin data > /dev/null; then
           git fetch --depth 1 origin data
           git checkout FETCH_HEAD -- data/metricas_historicas.parquet data/datos_recientes.parquet
+          git checkout FETCH_HEAD -- data/archivados.json 2>/dev/null || echo "Aún no hay registro de días archivados"
           echo "Datos tomados de la rama data"
         else
           echo "Rama data no existe aún: se usan los parquet de main"
@@ -56,6 +57,7 @@ jobs:
       env:
         DTPM_USUARIO: ${{ secrets.DTPM_USUARIO }}
         DTPM_CLAVE: ${{ secrets.DTPM_CLAVE }}
+        GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}   # para subir los días completos al archivo diario
       run: python scripts/monitor.py
 
     # Solo si hubo una captura nueva (monitor.py descarta las repetidas)
@@ -67,6 +69,7 @@ jobs:
         PUB=$(mktemp -d)
         mkdir -p "$PUB/data"
         cp data/metricas_historicas.parquet data/datos_recientes.parquet "$PUB/data/"
+        if [ -f data/archivados.json ]; then cp data/archivados.json "$PUB/data/"; fi
         # Análisis por línea: el último que publicó analisis-lineas.yaml; si no hay, el de main
         gh release download analisis-lineas -D pagina --clobber -p lineas.json -p data_estatico.json \
           || echo "Sin Release analisis-lineas: se usa el análisis de main"
