@@ -67,6 +67,9 @@ jobs:
         PUB=$(mktemp -d)
         mkdir -p "$PUB/data"
         cp data/metricas_historicas.parquet data/datos_recientes.parquet "$PUB/data/"
+        # Análisis por línea: el último que publicó analisis-lineas.yaml; si no hay, el de main
+        gh release download analisis-lineas -D pagina --clobber -p lineas.json -p data_estatico.json \
+          || echo "Sin Release analisis-lineas: se usa el análisis de main"
         # Dashboard (GitHub Pages sirve la raíz de esta rama): página + datos livianos
         cp pagina/index.html pagina/data_estatico.json pagina/lineas.json "$PUB/"
         python scripts/generar_datos_artifact.py "$PUB/data_vivo.json"

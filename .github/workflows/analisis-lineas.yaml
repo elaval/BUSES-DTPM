@@ -1,0 +1,67 @@
+name: Análisis por línea y tramo
+
+# Recalcula la velocidad por tramo y los buses por hora de cada línea con todo el
+# archivo GPS (histórico + diarios + datos_recientes, que trae las capturas de hoy)
+# y publica lineas.json y data_estatico.json en el Release `analisis-lineas`.
+# El workflow de monitoreo los toma de ahí al publicar.
+on:
+  schedule:
+    # Por ahora, dos veces por día hábil para ir llenando los tramos sin datos:
+    # después de la punta mañana y después de la punta tarde (hora de Chile en verano).
+    # Cuando la cobertura se estabilice, basta una vez por semana:  '20 9 * * 1'
+    - cron: '30 12,23 * * 1-5'   # ~09:30 y ~20:30
+  workflow_dispatch:
+
+concurrency:
+  group: analisis-lineas
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+jobs:
+  analisis:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+
+    steps:
+    - name: Checkout código (main)
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 1
+
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.11'
+
+    - name: Install dependencies
+      run: pip install pandas pyarrow requests shapely openpyxl
+
+    - name: Descargar insumos y archivos GPS
+      env:
+        GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      run: |
+        gh release download insumos-dtpm -D insumos
+        gh release download archivo-gps-2026-11 -D gps
+        gh release download archivo-gps-diario -D gps || echo "Aún no hay archivos diarios"
+        # Las capturas de los últimos 7 días, incluida la de hoy (los duplicados con
+        # los archivos diarios se eliminan al leer)
+        git fetch --depth 1 origin data
+        git show FETCH_HEAD:data/datos_recientes.parquet > gps/zz_datos_recientes.parquet
+        ls -lh insumos
+        echo "$(ls gps | wc -l) archivos GPS, $(du -sh gps | cut -f1)"
+
+    - name: Calcular
+      run: |
+        python scripts/analisis_paraderos.py --archivo gps/*.parquet \
+          --gtfs insumos/*.zip --excel insumos/*.xlsx --salida salida
+
+    - name: Publicar en el Release analisis-lineas
+      env:
+        GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      run: |
+        gh release view analisis-lineas > /dev/null 2>&1 || gh release create analisis-lineas \
+          --title "Análisis por línea y tramo" \
+          --notes "lineas.json y data_estatico.json del dashboard. Los recalcula .github/workflows/analisis-lineas.yaml."
+        gh release upload analisis-lineas salida/lineas.json salida/data_estatico.json --clobber

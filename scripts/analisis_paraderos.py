@@ -8,10 +8,14 @@ Genera:
                                 por tramo; más el índice paradero -> recorridos de la red
 
 Entradas:
-  --archivo  parquet con el detalle bus por bus (p. ej. el del Release
-             archivo-gps-2026-11, o datos_recientes.parquet de la rama data)
-  --gtfs     zip GTFS oficial del DTPM (https://www.dtpm.cl/descargas/gtfs/...)
-  --excel    docs/Servicios_decos_*.xlsx (código interno -> recorrido público)
+  --archivo  uno o más parquet con el detalle bus por bus: el del Release
+             archivo-gps-2026-11, los diarios del Release archivo-gps-diario y
+             datos_recientes.parquet (los registros repetidos se eliminan)
+  --gtfs     zip GTFS oficial del DTPM (Release insumos-dtpm)
+  --excel    Servicios_decos_*.xlsx (código interno -> recorrido público; Release insumos-dtpm)
+
+  En GitHub lo corre .github/workflows/analisis-lineas.yaml, que publica
+  lineas.json y data_estatico.json en el Release analisis-lineas.
 
 Uso:
   pip install pandas pyarrow openpyxl shapely
@@ -69,6 +73,26 @@ def edad_real(a):
     return a.edad_datos_min + corr
 
 
+COLUMNAS = ['timestamp', 'patente', 'servicio', 'sentido', 'estado', 'edad_datos_min',
+            'latitud', 'longitud', 'velocidad_promedio']
+
+
+def leer_gps(rutas):
+    """Une los archivos GPS (histórico + diarios), dejando solo días hábiles con GPS al día.
+
+    Se filtra archivo por archivo para no cargar en memoria lo que no se usa.
+    """
+    partes = []
+    for r in sorted(rutas):
+        a = pd.read_parquet(r, columns=COLUMNAS)
+        a['edad'] = edad_real(a)
+        partes.append(a[(a.timestamp.dt.dayofweek < 5) & a.edad.between(0, 10)])
+    a = pd.concat(partes, ignore_index=True).drop_duplicates(['patente', 'timestamp'])
+    print(f'{len(rutas)} archivos GPS: {len(a):,} registros hábiles, '
+          f'{a.timestamp.nunique():,} capturas ({a.timestamp.min():%d-%m-%Y} a {a.timestamp.max():%d-%m-%Y})')
+    return a
+
+
 def limpio(n):
     return re.sub(r'^[A-Z]+\d+-', '', n)
 
@@ -94,7 +118,7 @@ def nombre_tramo(n1, n2):
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument('--archivo', required=True)
+    ap.add_argument('--archivo', required=True, nargs='+', help='Uno o más parquet GPS')
     ap.add_argument('--gtfs', required=True)
     ap.add_argument('--excel', required=True)
     ap.add_argument('--salida', default='pagina')
@@ -142,11 +166,9 @@ def main():
         REC[(r, dr)] = {'line': line, 'stops': s, 'ch': ch, 'destino': s.trip_headsign.iloc[0]}
 
     # --- datos GPS
-    a = pd.read_parquet(args.archivo)
-    a['edad'] = edad_real(a)
-    a['h'] = a.timestamp.dt.hour
-    hab = a[(a.timestamp.dt.dayofweek < 5) & a.edad.between(0, 10)]
-    periodo_txt = args.periodo or f"días hábiles, {a.timestamp.min():%d-%m-%Y} a {a.timestamp.max():%d-%m-%Y}"
+    hab = leer_gps(args.archivo)
+    hab['h'] = hab.timestamp.dt.hour
+    periodo_txt = args.periodo or f"días hábiles, {hab.timestamp.min():%d-%m-%Y} a {hab.timestamp.max():%d-%m-%Y}"
     d = hab[(hab.estado == 'en_movimiento') & (~hab.servicio.fillna('').str.endswith('TS')) &
             (hab.servicio.fillna('') != '')]
     d = d.assign(periodo=d.h.map(PERIODO), pub=d.servicio.map(srv2pub)).dropna(subset=['periodo', 'pub', 'sentido'])

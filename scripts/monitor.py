@@ -249,6 +249,23 @@ def calcular_metricas(df):
     return metricas
 
 
+def compactar(df):
+    """Formato compacto para guardar datos bus por bus.
+
+    float32 (≈0,4 m de precisión en las coordenadas) y filas ordenadas por bus:
+    con compresión zstd, una semana de capturas cada 10 min pesa ~30 MB en vez de
+    ~115 MB (GitHub rechaza archivos de más de 100 MB).
+    """
+    df = df.copy()
+    for c in df.select_dtypes('float64').columns:
+        df[c] = df[c].astype('float32')
+    return df.sort_values(['patente', 'timestamp'], kind='stable')
+
+
+def escribir_parquet(df, ruta):
+    compactar(df).to_parquet(ruta, index=False, compression='zstd', compression_level=9)
+
+
 def guardar_datos_recientes(df_nuevo):
     """
     Guarda datos recientes con garbage collection (últimos 7 días)
@@ -271,8 +288,8 @@ def guardar_datos_recientes(df_nuevo):
     # Un bus, una fila por captura (limpia también duplicados ya guardados)
     df_combined = df_combined.drop_duplicates(subset=['patente', 'timestamp'], keep='last')
 
-    # Guardar
-    df_combined.to_parquet(ARCHIVO_RECIENTES, index=False)
+    # Guardar (formato compacto)
+    escribir_parquet(df_combined, ARCHIVO_RECIENTES)
 
     return len(df_combined)
 

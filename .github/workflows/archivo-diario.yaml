@@ -1,0 +1,45 @@
+name: Archivo diario GPS
+
+# Guarda cada día completo de datos bus por bus en el Release `archivo-gps-diario`
+# antes de que salga de la ventana de 7 días de datos_recientes.parquet.
+# Si una corrida falla, la siguiente recupera los días pendientes.
+on:
+  schedule:
+    - cron: '35 6 * * *'   # ~03:35 hora de Chile en verano (02:35 en invierno)
+  workflow_dispatch:
+
+concurrency:
+  group: archivo-gps
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+jobs:
+  archivar:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+    - name: Checkout código (main)
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 1
+
+    - name: Traer datos recientes (rama data)
+      run: |
+        git fetch --depth 1 origin data
+        git checkout FETCH_HEAD -- data/datos_recientes.parquet
+
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.11'
+
+    - name: Install dependencies
+      run: pip install pandas pyarrow requests
+
+    - name: Archivar días completos
+      env:
+        GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      run: python scripts/archivar_dias.py data/datos_recientes.parquet

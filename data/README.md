@@ -16,10 +16,10 @@ La rama también sirve el dashboard en GitHub Pages:
 | Archivo | Qué contiene | Tamaño aprox. | Se actualiza |
 |---|---|---|---|
 | `data/metricas_historicas.parquet` | Conteos agregados por operador y por servicio, una fila por captura | 3 MB | Cada captura (crece) |
-| `data/datos_recientes.parquet` | Un registro por bus y captura, con posición y velocidad. Solo los últimos 7 días | 5–15 MB | Cada captura (ventana móvil) |
+| `data/datos_recientes.parquet` | Un registro por bus y captura, con posición y velocidad. Solo los últimos 7 días (float32, compresión zstd) | ~30 MB | Cada captura (ventana móvil) |
 | `data_vivo.json` | Resumen liviano para el dashboard (últimos 7 días) | 5 KB | Cada captura |
-| `data_estatico.json` | Velocidad por tramo entre paraderos (toda la red), comunas y tramos más lentos (análisis may–nov 2026) | 400 KB | Manual (`scripts/analisis_paraderos.py`) |
-| `lineas.json` | Análisis por recorrido: buses por hora, paraderos y velocidad por tramo; índice paradero → recorridos | 6 MB | Manual (`scripts/analisis_paraderos.py`) |
+| `data_estatico.json` | Velocidad por tramo entre paraderos (toda la red), comunas y tramos más lentos | 400 KB | Días hábiles, ~9:30 y ~20:30 (`analisis-lineas.yaml`) |
+| `lineas.json` | Análisis por recorrido: buses por hora, paraderos y velocidad por tramo; índice paradero → recorridos | 6 MB | Días hábiles, ~9:30 y ~20:30 (`analisis-lineas.yaml`) |
 | `index.html` | Página del dashboard | — | Con cada cambio en `main` |
 
 Además, el detalle bus por bus de **todas las capturas del 8 de mayo al 14 de
@@ -28,6 +28,17 @@ está como archivo descargable en el Release
 [`archivo-gps-2026-11`](https://github.com/elaval/BUSES-DTPM/releases/tag/archivo-gps-2026-11).
 Tiene las mismas columnas que `datos_recientes.parquet`, sin `senal_reciente`
 (ver notas de calidad).
+
+Desde el 15 de noviembre, cada día completo se guarda como
+`archivo_gps_AAAA-MM-DD.parquet` (~4 MB) en el Release
+[`archivo-gps-diario`](https://github.com/elaval/BUSES-DTPM/releases/tag/archivo-gps-diario)
+(`archivo-diario.yaml`, cada madrugada). Con ambos Releases se reconstruye todo el
+detalle bus por bus.
+
+Releases de apoyo: [`insumos-dtpm`](https://github.com/elaval/BUSES-DTPM/releases/tag/insumos-dtpm)
+(GTFS y archivo oficial de códigos de servicio) y
+[`analisis-lineas`](https://github.com/elaval/BUSES-DTPM/releases/tag/analisis-lineas)
+(`lineas.json` y `data_estatico.json`, recalculados con todo el archivo y las capturas del día).
 
 ## Cómo leerlos
 
