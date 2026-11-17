@@ -39,7 +39,9 @@ footer{color:var(--muted);font-size:12px;margin-top:24px}
 .deftab td{vertical-align:top;font-size:13px} .deftab td:first-child{white-space:nowrap}
 .deftab .sw{vertical-align:-1px}
 #lmpanel{position:absolute;z-index:15;max-width:300px;background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:8px 10px;font-size:12px;box-shadow:0 6px 20px rgba(0,0,0,.15);pointer-events:auto}
-#lmpanel .t{font-weight:600;margin-bottom:4px} #lmpanel .r{display:flex;flex-wrap:wrap;gap:4px;margin-top:4px}
+#lmpanel .t{font-weight:600;margin-bottom:4px}
+#lmbarra{font-size:12.5px;line-height:1.4;min-height:2.9em;box-sizing:border-box;padding:5px 10px;margin:0 0 6px;border:1px solid var(--border);border-radius:8px;background:var(--surface);color:var(--ink2);display:flex;align-items:center}
+#lmbarra b,#lmbarra .on{color:var(--ink)} #lmbarra .on{font-weight:600} #lmpanel .r{display:flex;flex-wrap:wrap;gap:4px;margin-top:4px}
 #lmpanel button{font:inherit;font-size:12px;padding:2px 7px;border-radius:6px;border:1px solid var(--border);background:var(--bg);color:var(--ink);cursor:pointer}
 #lmpanel button.cur{border-color:var(--s1);color:var(--s1);font-weight:600}
 #lmpanel button:not(.cur):hover,#lmpanel button:not(.cur):focus-visible{border-color:var(--s2);color:var(--s2)}
@@ -119,7 +121,7 @@ figure{margin:0}
 <div id="linhead"></div>
 <div class="kpis" id="linkpis"></div>
 <h2 style="font-size:15px">Mapa del recorrido</h2>
-<p class="note">Tramos del recorrido coloreados según la velocidad de esta línea (en blanco, sin datos suficientes). Puntos oscuros: paraderos del recorrido; en gris, el resto de la red. Pasa el cursor sobre un tramo para ver su velocidad, o sobre cualquier paradero para ver qué recorridos lo atienden y sus trazados; haz clic para fijarlo, pasa el cursor sobre cada número para destacar ese recorrido y haz clic para elegirlo.</p>
+<p class="note">Tramos del recorrido coloreados según la velocidad de esta línea (en blanco, sin datos suficientes). Puntos oscuros: paraderos del recorrido; en gris, el resto de la red. Pasa el cursor sobre el recorrido para ver la velocidad de cada tramo en la barra sobre el mapa, y sobre cualquier paradero para ver qué recorridos lo atienden y sus trazados; haz clic para fijarlo, pasa el cursor sobre cada número para destacar ese recorrido y haz clic para elegirlo.</p>
 <div style="display:flex;gap:16px;flex-wrap:wrap;align-items:center">
 <div class="tabs" id="lmsent"></div>
 <div class="tabs" id="lmper"><button data-p="pk" class="on">Peor punta</button><button data-p="am">Punta mañana</button><button data-p="pm">Punta tarde</button><button data-p="va">Valle</button></div>
@@ -129,6 +131,7 @@ figure{margin:0}
 <div class="tabs" style="margin:0"><button id="lmzin" aria-label="Acercar">+</button><button id="lmzout" aria-label="Alejar">−</button><button id="lmzred">Ver toda la red</button><button id="lmzrec">Volver al recorrido</button></div>
 <span style="font-size:12px;color:var(--muted)">Arrastra para mover · Ctrl/⌘ + rueda (o pellizca) para hacer zoom</span>
 </div>
+<div id="lmbarra" aria-live="polite"></div>
 <div id="linmapa" style="position:relative;overflow:hidden;border-radius:8px;cursor:grab"></div>
 <h2 style="font-size:15px">Buses en servicio por hora</h2>
 <p class="note">Mediana por hora de un día hábil (may–nov 2026). Aproximación: buses del recorrido en movimiento o avanzando lento en el momento de cada captura; con solo ~4 capturas al día en ese período no se puede aplicar el criterio exacto de "en servicio", que subestima levemente a los buses completamente detenidos. Se recalculará con las capturas cada 10 minutos.</p>
@@ -321,16 +324,20 @@ cargar('lineas').catch(e=>{document.getElementById('linerr').textContent='No se 
   [ovB,ovA].forEach(g=>g.setAttribute('pointer-events','none'));
   zg.insertBefore(ovB,zg.querySelector('g[aria-label="line"]')); zg.appendChild(ovA);
   const trazos=new Map(), lineaPx=d3.line();
+  // puntos cada ~paso px (sin zoom) a lo largo de una polilínea proyectada
+  const densificar=(q,paso,extra)=>{const o=[];if(q.length===1)o.push({x:q[0][0],y:q[0][1],...extra});
+    for(let i=1;i<q.length;i++){const [ax,ay]=q[i-1],[bx,by]=q[i],n=Math.max(1,Math.ceil(Math.hypot(bx-ax,by-ay)/paso));
+     for(let j=i>1?1:0;j<=n;j++)o.push({x:ax+(bx-ax)*j/n,y:ay+(by-ay)*j/n,...extra})}return o};
   function trazo(r,s){const k=r+'|'+s;if(!trazos.has(k)){const pts=[];
     LN[r].sentidos[s].tramos.forEach(t=>t[4].forEach(c=>{const q=proj(c),u=pts.at(-1);if(!u||u[0]!==q[0]||u[1]!==q[1])pts.push(q)}));
-    trazos.set(k,pts.length>1?lineaPx(pts):null)}return trazos.get(k)}
+    trazos.set(k,pts.length>1?{d:lineaPx(pts),obs:densificar(pts,6)}:null)}return trazos.get(k)}
   // sentidos del recorrido que pasan por ese paradero (si no se encuentra, ambos)
   const sentidosEn=(r,p)=>{const ss=Object.entries(LN[r].sentidos).filter(([,S3])=>S3.paraderos.some(q=>Math.abs(q[2]-p.la)<1e-5&&Math.abs(q[3]-p.lo)<1e-5)).map(([s])=>s);return ss.length?ss:Object.keys(LN[r].sentidos)};
-  let ovP=null, ovRs=[];
+  let ovP=null, ovRs=[], obsOv=[];
   function dibujarOv(p,rs,dest){
-   ovB.replaceChildren(); ovA.replaceChildren(); ovP=p; ovRs=rs; ovB.style.opacity=dest?0.18:0.5;
+   ovB.replaceChildren(); ovA.replaceChildren(); ovP=p; ovRs=rs; ovB.style.opacity=dest?0.18:0.5; obsOv=[];
    for(const r of rs){ if(!LN[r]||(r===id&&r!==dest)) continue;
-    for(const s of sentidosEn(r,p)){ const d=trazo(r,s); if(!d) continue;
+    for(const s of sentidosEn(r,p)){ const tz=trazo(r,s); if(!tz) continue; const d=tz.d; obsOv.push(tz.obs);
      const pa=document.createElementNS(NS,'path'), on=r===dest;
      pa.setAttribute('d',d); pa.setAttribute('vector-effect','non-scaling-stroke');
      Object.assign(pa.style,{fill:'none',strokeLinejoin:'round',strokeLinecap:'round',stroke:on?C.s2:C.ink2,strokeWidth:on?'4px':'2px',strokeOpacity:on?0.95:1});
@@ -340,8 +347,45 @@ cargar('lineas').catch(e=>{document.getElementById('linerr').textContent='No se 
    c.setAttribute('cx',cx); c.setAttribute('cy',cy); c.setAttribute('r',6/tf.k); c.setAttribute('vector-effect','non-scaling-stroke');
    Object.assign(c.style,{fill:'none',stroke:'currentColor',strokeWidth:'1.5px'}); ovA.appendChild(c);
   }
-  const limpiarOv=()=>{ovB.replaceChildren();ovA.replaceChildren();ovP=null;ovRs=[]};
-  const ocultar=()=>{panel.hidden=true;limpiarOv()};
+  const limpiarOv=()=>{ovB.replaceChildren();ovA.replaceChildren();ovP=null;ovRs=[];obsOv=[]};
+  const ocultar=()=>{panel.hidden=true;pAct=null;limpiarOv()};
+
+  // Barra de lectura: velocidad del tramo más cercano al cursor, con su contorno en el mapa
+  const barra=document.getElementById('lmbarra'), hintB='Pasa el cursor sobre el recorrido para ver la velocidad de cada tramo.';
+  barra.textContent=hintB;
+  const densT=TR.flatMap(t=>densificar(t.cs.map(c=>proj(c)),3,{t}));   // también sirve para ubicar el panel
+  const qD=d3.quadtree(densT,d=>d.x,d=>d.y);
+  const ovT=document.createElementNS(NS,'g'); ovT.setAttribute('pointer-events','none');
+  zg.insertBefore(ovT,zg.querySelector('g[aria-label="line"]'));
+  let tAct=null;
+  function barraTramo(t){
+   if(t===tAct) return; tAct=t; ovT.replaceChildren();
+   if(!t){barra.textContent=hintB;return}
+   const pa=document.createElementNS(NS,'path'); pa.setAttribute('d',lineaPx(t.cs.map(c=>proj(c)))); pa.setAttribute('vector-effect','non-scaling-stroke');
+   Object.assign(pa.style,{fill:'none',stroke:'currentColor',strokeOpacity:0.75,strokeWidth:'11px',strokeLinecap:'round',strokeLinejoin:'round'}); ovT.appendChild(pa);
+   const fuerte=k=>lmP===k||(lmP==='pk'&&k!=='va');
+   barra.innerHTML=`<span><b>${t.n.replace(/^Tramo: /,'Tramo ')}</b> · `+[['am','Punta mañana',1],['pm','Punta tarde',2],['va','Valle',4]]
+    .map(([k,l,b])=>`<span class="${fuerte(k)?'on':''}">${l} ${t[k]==null?'—':t[k].toFixed(1)+' km/h'+((t.f&b)?' (aprox.)':'')}</span>`).join(' · ')+'</span>';
+  }
+  const tramoEn=(mx,my)=>{const d=qD.find(mx,my,16/tf.k);return d?d.t:null};
+
+  // Ubicación del panel: entre varias posiciones alrededor del paradero, la que tapa
+  // menos puntos de los trazados visibles (recorrido actual y recorridos del paradero)
+  function ubicar(p,pw,ph){
+   const [qx,qy]=tf.apply([p.px,p.py]), obs=[densT,...obsOv];
+   const cand=[];
+   for(const g of [12,56]) cand.push([qx+g,qy-ph-g],[qx+g,qy+g],[qx-pw-g,qy-ph-g],[qx-pw-g,qy+g],[qx-pw/2,qy-ph-g],[qx-pw/2,qy+g],[qx+g,qy-ph/2],[qx-pw-g,qy-ph/2]);
+   let mejor=null;
+   cand.forEach(([l,t],i)=>{
+    l=Math.min(w-pw-4,Math.max(4,l)); t=Math.min(h-ph-4,Math.max(4,t));
+    const L=l-6,T=t-6,R=l+pw+6,B=t+ph+6; let n=0;
+    if(qx>=L-6&&qx<=R+6&&qy>=T-6&&qy<=B+6) n+=1e4;   // nunca tapar el paradero
+    for(const arr of obs) for(const o of arr){const sx_=o.x*tf.k+tf.x, sy_=o.y*tf.k+tf.y; if(sx_>=L&&sx_<=R&&sy_>=T&&sy_<=B) n++}
+    const sc=n+i*0.01;
+    if(!mejor||sc<mejor[0]) mejor=[sc,l,t];
+   });
+   panel.style.left=mejor[1]+'px'; panel.style.top=mejor[2]+'px';
+  }
   const ajustar=()=>{raf=0;const k=tf.k;circ.forEach(([c,r])=>c.setAttribute('r',r/Math.sqrt(k)));txt.forEach(([t,f])=>t.style.fontSize=(f/k)+'px');zg.querySelectorAll('text').forEach(t=>t.setAttribute('stroke-width',3/k))};
   const zoom=d3.zoom().scaleExtent([0.25,16]).filter(e=>e.type==='wheel'?(e.ctrlKey||e.metaKey):!e.button)
    .on('start',()=>{el.style.cursor='grabbing'}).on('end',()=>{el.style.cursor='grab'})
@@ -353,27 +397,29 @@ cargar('lineas').catch(e=>{document.getElementById('linerr').textContent='No se 
   document.getElementById('lmzrec').onclick=()=>d3.select(svg).transition().duration(450).call(zoom.transform,d3.zoomIdentity);
   document.getElementById('lmzred').onclick=()=>{const xy=RED.map(r=>proj([r.lo,r.la]));const [ax,bx]=d3.extent(xy,d=>d[0]),[ay,by]=d3.extent(xy,d=>d[1]);const k=Math.min(w/(bx-ax),h/(by-ay))*0.95;
    d3.select(svg).transition().duration(600).call(zoom.transform,d3.zoomIdentity.translate(w/2,h/2).scale(k).translate(-(ax+bx)/2,-(ay+by)/2))};
-  const pts=[...P2.map(r=>({...r,mine:true})),...TR.map(t=>({...t,lo:t.mid[0],la:t.mid[1],mine:true,tramo:true})),...vis.map(r=>({...r,mine:false}))].map(r=>{const [px,py]=proj([r.lo,r.la]);return {...r,px,py}});
-  const qS=d3.quadtree(pts.filter(d=>d.mine&&!d.tramo),d=>d.px,d=>d.py), qT=d3.quadtree(pts.filter(d=>d.tramo),d=>d.px,d=>d.py), qtR=d3.quadtree(pts.filter(d=>!d.mine),d=>d.px,d=>d.py);
-  const buscar=(x,y)=>{const k=tf.k;return qS.find(x,y,6/k)||qT.find(x,y,14/k)||qtR.find(x,y,8/k)};
-  let pinned=false;
+  const pts=[...P2.map(r=>({...r,mine:true})),...vis.map(r=>({...r,mine:false}))].map(r=>{const [px,py]=proj([r.lo,r.la]);return {...r,px,py}});
+  const qS=d3.quadtree(pts.filter(d=>d.mine),d=>d.px,d=>d.py), qtR=d3.quadtree(pts.filter(d=>!d.mine),d=>d.px,d=>d.py);
+  const buscar=(x,y)=>{const k=tf.k;return qS.find(x,y,6/k)||qtR.find(x,y,8/k)};
+  let pinned=false, pAct=null;
   const recorridos=p=>{const red=RED.find(r=>Math.abs(r.la-p.la)<1e-5&&Math.abs(r.lo-p.lo)<1e-5);return red?red.rs:[id]};
   function contenido(p){
-   if(p.tramo) return `<div class="t">${p.n}</div><div>Línea ${id}: ${[['Punta mañana',p.am,p.f&1],['Punta tarde',p.pm,p.f&2],['Valle',p.va,p.f&4]].map(([k,v,ap])=>`${k} ${v==null?'—':v.toFixed(1)+' km/h'+(ap?' (aprox.)':'')}`).join(' · ')}</div><div style="margin-top:4px;color:var(--ink2)">Pasa el cursor sobre un paradero para ver sus recorridos.</div>`;
    const rs=recorridos(p);
    let t=`<div class="t">${p.n}</div>`;
    t+=`<div style="margin-top:4px;color:var(--ink2)">${rs.length} recorrido${rs.length>1?'s':''} — ${pinned?'elige uno:':'haz clic para elegir'}</div><div class="r">`+rs.map(r=>`<button data-r="${r}" class="${r===id?'cur':''}" title="${LN[r]?LN[r].nombre:''}">${r}</button>`).join('')+'</div>';
    return t;
   }
-  function mostrar(p){panel.innerHTML=contenido(p);panel.hidden=false;const pw=panel.offsetWidth,ph=panel.offsetHeight;const [qx,qy]=tf.apply([p.px,p.py]);panel.style.left=Math.min(w-pw-4,Math.max(4,qx+12))+'px';panel.style.top=Math.max(4,(qy-ph-10<0?qy+14:qy-ph-10))+'px';
-   if(p.tramo) limpiarOv(); else if(ovP!==p||!ovRs.length) dibujarOv(p,recorridos(p),null);
+  function mostrar(p){pAct=p;panel.innerHTML=contenido(p);panel.hidden=false;
+   if(ovP!==p||!ovRs.length) dibujarOv(p,recorridos(p),null);
+   ubicar(p,panel.offsetWidth,panel.offsetHeight);
    panel.querySelectorAll('button[data-r]').forEach(b=>{
     const r=b.dataset.r, on=()=>{if(ovP)dibujarOv(ovP,ovRs,r)}, off=()=>{if(ovP)dibujarOv(ovP,ovRs,null)};
     b.onmouseenter=on; b.onfocus=on; b.onmouseleave=off; b.onblur=off;
     b.onclick=()=>{if(LN[r]){elegir(r);document.getElementById('linea-card').scrollIntoView({behavior:'smooth'})}}});}
-  svg.addEventListener('pointermove',e=>{if(pinned)return;const r=svg.getBoundingClientRect(),sx=w/r.width;const [mx,my]=tf.invert([(e.clientX-r.left)*sx,(e.clientY-r.top)*sx]);const p=buscar(mx,my);if(p)mostrar(p);else ocultar()});
-  svg.addEventListener('pointerleave',e=>{if(!pinned&&!panel.contains(e.relatedTarget))ocultar()});
-  svg.addEventListener('click',e=>{const r=svg.getBoundingClientRect(),sx=w/r.width;const [mx,my]=tf.invert([(e.clientX-r.left)*sx,(e.clientY-r.top)*sx]);const p=buscar(mx,my);if(p){pinned=true;mostrar(p)}else{pinned=false;ocultar()}});
+  svg.addEventListener('pointermove',e=>{const r=svg.getBoundingClientRect(),sx=w/r.width;const [mx,my]=tf.invert([(e.clientX-r.left)*sx,(e.clientY-r.top)*sx]);
+   barraTramo(tramoEn(mx,my)); if(pinned)return;
+   const p=buscar(mx,my); if(p){if(p!==pAct||panel.hidden)mostrar(p)} else ocultar()});
+  svg.addEventListener('pointerleave',e=>{barraTramo(null);if(!pinned&&!panel.contains(e.relatedTarget))ocultar()});
+  svg.addEventListener('click',e=>{const r=svg.getBoundingClientRect(),sx=w/r.width;const [mx,my]=tf.invert([(e.clientX-r.left)*sx,(e.clientY-r.top)*sx]);barraTramo(tramoEn(mx,my));const p=buscar(mx,my);if(p){pinned=true;mostrar(p)}else{pinned=false;ocultar()}});
  }
  const inp=document.getElementById('lin'), ul=document.getElementById('linlist');
  const norm=t=>t.normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase();
