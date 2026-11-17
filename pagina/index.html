@@ -79,8 +79,8 @@ figure{margin:0}
 
 <div class="card">
 <h2>Últimos 7 días</h2>
-<p class="note"><b>Buses en servicio</b> en cada captura: con un recorrido asignado y que se movieron en los últimos ~20 minutos (incluye a los detenidos en un paradero o semáforo). La línea punteada es la flota de referencia: buses distintos que transmitieron al menos una vez en los últimos 7 días. Antes del 15 de noviembre solo hay unas pocas capturas al día y no se puede calcular quién está en servicio: los círculos muestran los buses en movimiento en esas capturas, como referencia aproximada.</p>
-<div class="legend"><span><i class="sw" style="background:var(--s1)"></i>Buses en servicio</span><span><i class="sw" style="background:transparent;border:1.5px solid var(--s1);border-radius:50%"></i>En movimiento (capturas antiguas)</span><span><i class="sw" style="background:transparent;border-top:2px dashed var(--muted);height:0;width:14px;border-radius:0"></i>Flota con señal en 7 días</span></div>
+<p class="note"><b>Buses en servicio</b> en cada captura: con un recorrido asignado y que se movieron en los últimos ~20 minutos (incluye a los detenidos en un paradero o semáforo). La línea punteada es la flota de referencia: buses distintos que transmitieron al menos una vez en los últimos 7 días. Antes del 15 de noviembre solo hay unas pocas capturas al día y no se puede calcular quién está en servicio: los círculos muestran los buses en movimiento en esas capturas, como referencia aproximada. Si faltan capturas por un rato (por ejemplo, porque la fuente de datos no respondió), ese tramo se completa con una línea discontinua interpolada.</p>
+<div class="legend"><span><i class="sw" style="background:var(--s1)"></i>Buses en servicio</span><span><i class="sw" style="background:transparent;border:1.5px solid var(--s1);border-radius:50%"></i>En movimiento (capturas antiguas)</span><span><i class="sw" style="background:transparent;border-top:2px dashed var(--muted);height:0;width:14px;border-radius:0"></i>Flota con señal en 7 días</span><span id="legrell" hidden><i class="sw" style="background:transparent;border-top:2px dashed var(--s1);height:0;width:14px;border-radius:0"></i>Sin capturas (interpolado)</span></div>
 <div id="serie"></div>
 </div>
 
@@ -171,8 +171,14 @@ const k=[['Buses en servicio',enS==null?'—':fmt(enS),enMov==null?'operando con
 document.getElementById('kpis').innerHTML=k.map(([l,v,d])=>`<div class="kpi"><div class="l">${l}</div><div class="v">${v}</div><div class="d">${d}</div></div>`).join('');
 // serie
 const ser=V.serie.map(([t,a,b,c,oc,ot,ocm])=>({t:parse(t),total:a,mov:b,sin:c,oc:oc??null,ot:ot??null,ocm:ocm??null}));
-let g=0;ser.forEach((d,i)=>{if(i>0&&(d.t-ser[i-1].t)>30*60000)g++;d.g=g});
 const dens=ser.filter(d=>d.oc!=null);
+// Capturas faltantes (p. ej., la API del DTPM no respondió): los huecos de hasta 3 h se
+// completan con una línea discontinua interpolada; los más largos quedan en blanco.
+const HUECO=25*60000, RELLENO_MAX=3*3600000, rell=[];
+let g=0;dens.forEach((d,i)=>{if(i>0){const a=dens[i-1],dt=d.t-a.t;if(dt>HUECO){g++;
+  if(dt<=RELLENO_MAX){const n=Math.round(dt/600000);for(let j=0;j<=n;j++)rell.push({t:new Date(+a.t+dt*j/n),oc:Math.round(a.oc+(d.oc-a.oc)*j/n),h:g,ini:a.t,fin:d.t,borde:j===0||j===n})}}}d.g=g});
+const tipSer=[...dens,...rell.filter(d=>!d.borde)].sort((a,b)=>a.t-b.t);
+if(rell.length)document.getElementById('legrell').hidden=false;
 // Círculos solo para las capturas antiguas (antes de las capturas cada 10 min);
 // después, una captura sin dato se omite y la línea la salta.
 const t0=dens.length?dens[0].t:null, rala=ser.filter(d=>d.oc==null&&(t0==null||d.t<t0));
@@ -183,9 +189,11 @@ document.getElementById('serie').append(Plot.plot({width:W('serie'),height:280,m
   F?Plot.ruleY([F],{stroke:C.muted,strokeDasharray:'4,3'}):null,
   F?Plot.text([F],{x:ser.at(-1).t,y:F,text:d=>`Flota con señal en los últimos 7 días: ${fmt(d)}`,dy:-7,textAnchor:'end',fill:C.muted}):null,
   Plot.areaY(dens,{x:'t',y:'oc',z:'g',fill:C.s1,fillOpacity:0.15}),
+  Plot.areaY(rell,{x:'t',y:'oc',z:'h',fill:C.s1,fillOpacity:0.15}),
   Plot.lineY(dens,{x:'t',y:'oc',z:'g',stroke:C.s1,strokeWidth:2}),
+  Plot.lineY(rell,{x:'t',y:'oc',z:'h',stroke:C.s1,strokeWidth:1.5,strokeDasharray:'3,3',strokeOpacity:0.8}),
   Plot.dot(rala,{x:'t',y:'mov',stroke:C.s1,fill:'none',r:2.8}),
-  Plot.tip(dens,Plot.pointerX({x:'t',y:'oc',title:d=>`${es.format('%a %e %b, %H:%M')(d.t)}\nBuses en servicio: ${fmt(d.oc)}\n(${Math.round(d.oc/F*100)} % de la flota)`})),
+  Plot.tip(tipSer,Plot.pointerX({x:'t',y:'oc',title:d=>d.ini?`${es.format('%a %e %b, %H:%M')(d.t)}\nSin capturas entre las ${es.format('%H:%M')(d.ini)} y las ${es.format('%H:%M')(d.fin)}\nValor interpolado: ~${fmt(d.oc)}`:`${es.format('%a %e %b, %H:%M')(d.t)}\nBuses en servicio: ${fmt(d.oc)}\n(${Math.round(d.oc/F*100)} % de la flota)`})),
   Plot.tip(rala,Plot.pointer({x:'t',y:'mov',title:d=>`${es.format('%a %e %b, %H:%M')(d.t)}\nEn movimiento: ${fmt(d.mov)}\n(captura antigua: no permite calcular buses en servicio)`}))
  ].filter(Boolean)}));
 // perfil

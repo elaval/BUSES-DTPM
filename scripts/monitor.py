@@ -11,6 +11,7 @@ import pyarrow.parquet as pq
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 import os
+import time
 from pathlib import Path
 
 from archivo_gps import archivar_pendientes, escribir_parquet
@@ -57,19 +58,48 @@ UMBRAL_SENAL_MIN = 10
 UMBRAL_DESCARTE_MIN = 190
 
 
+def aviso(nivel, titulo, mensaje):
+    """Imprime el mensaje y, en GitHub Actions, lo deja como anotación (notice, warning
+    o error) visible en la página pública de la corrida, sin necesidad de iniciar sesión."""
+    print(f"{titulo}: {mensaje}")
+    if os.getenv('GITHUB_ACTIONS') == 'true':
+        print(f"::{nivel} title={titulo}::{mensaje}")
+
+
+# La API a veces tarda o no responde: hasta 3 intentos en la misma corrida
+# (a lo más ~3 min: la captura queda a 6 min o más de la siguiente, ver MIN_SEPARACION_MIN)
+INTENTOS_API = 3
+TIMEOUT_API = (10, 40)       # segundos para conectar y para recibir la respuesta
+ESPERA_REINTENTO = 10
+
+
 def capturar_datos_api():
-    """Captura datos de la API del DTPM"""
-    try:
-        response = requests.get(
-            API_URL,
-            auth=HTTPBasicAuth(USUARIO, CLAVE),
-            timeout=30
-        )
-        response.raise_for_status()
-        return response.json()
-    except Exception as e:
-        print(f"❌ Error capturando datos: {e}")
-        return None
+    """Captura datos de la API del DTPM, con reintentos"""
+    errores = []
+    for intento in range(1, INTENTOS_API + 1):
+        t0 = time.monotonic()
+        try:
+            response = requests.get(API_URL, auth=HTTPBasicAuth(USUARIO, CLAVE), timeout=TIMEOUT_API)
+            response.raise_for_status()
+            data = response.json()
+            if errores:
+                aviso('notice', 'Captura con reintento',
+                      f'La API respondió en el intento {intento} ({time.monotonic() - t0:.0f} s). '
+                      f'Antes: {"; ".join(errores)}')
+            return data
+        except requests.exceptions.Timeout:
+            errores.append(f'intento {intento}: sin respuesta en {time.monotonic() - t0:.0f} s')
+        except requests.exceptions.HTTPError as e:
+            errores.append(f'intento {intento}: HTTP {e.response.status_code}')
+        except Exception as e:
+            errores.append(f'intento {intento}: {type(e).__name__}: {e}')
+        print(f"⚠️  {errores[-1]}")
+        if intento < INTENTOS_API:
+            time.sleep(ESPERA_REINTENTO)
+    aviso('warning', 'Sin captura',
+          f'La API del DTPM no entregó datos tras {INTENTOS_API} intentos ({"; ".join(errores)}). '
+          'Esta captura se pierde; la siguiente corrida lo vuelve a intentar.')
+    return None
 
 
 def parsear_posiciones(data):
@@ -166,7 +196,7 @@ VENTANA_OPERANDO_MIN = 25
 # este intervalo (p. ej. el cron de respaldo de GitHub justo después del de
 # cron-job.org), se descarta: duplicaba buses en datos_recientes y producía saltos
 # en "buses en servicio" y muescas al acortar la ventana de "operando".
-MIN_SEPARACION_MIN = 7
+MIN_SEPARACION_MIN = 6
 
 
 def marcar_operando(df):
@@ -369,7 +399,6 @@ def generar_reporte():
     data = capturar_datos_api()
     
     if not data:
-        print("❌ No se pudieron capturar datos")
         return False
     
     # Parsear
@@ -377,15 +406,16 @@ def generar_reporte():
     df_buses = parsear_posiciones(data)
     
     if df_buses.empty:
-        print("⚠️  No hay buses con datos recientes")
+        aviso('warning', 'Sin captura', 'La API respondió, pero sin buses con datos recientes.')
         return False
     
     print(f"✅ {len(df_buses)} buses procesados")
 
     ts_nuevo = df_buses['timestamp'].iloc[0]
     if captura_repetida(ts_nuevo):
-        print(f"⏭️  Captura {ts_nuevo} repetida o a menos de {MIN_SEPARACION_MIN} min "
-              "de la última guardada: no se guarda ni se publica")
+        aviso('notice', 'Captura omitida',
+              f'La captura de las {ts_nuevo:%H:%M:%S} está repetida o a menos de {MIN_SEPARACION_MIN} min '
+              'de la última guardada: no se guarda ni se publica.')
         return False
 
     # Marcar buses operando usando las capturas de los últimos ~30 minutos

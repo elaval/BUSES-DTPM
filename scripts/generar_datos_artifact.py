@@ -24,7 +24,7 @@ ini = fin - pd.Timedelta(days=7)
 # Capturas demasiado juntas (p. ej. cron de respaldo de GitHub 1 min antes de la
 # de cron-job.org): se descarta la primera del par. Si no, la ventana de
 # "operando" se acorta y la serie muestra muescas.
-MIN_SEPARACION_MIN = 7
+MIN_SEPARACION_MIN = 6
 tsh = pd.Series(sorted(op.timestamp.unique()))
 descartar = set(tsh[(tsh.shift(-1) - tsh).dt.total_seconds() / 60 < MIN_SEPARACION_MIN])
 op = op[~op.timestamp.isin(descartar)]
