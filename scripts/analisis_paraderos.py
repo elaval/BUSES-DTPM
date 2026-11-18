@@ -49,6 +49,8 @@ import shapely
 from shapely.geometry import LineString, Point, mapping, shape
 from shapely.strtree import STRtree
 
+import inferir_codigos  # noqa: E402  (scripts/, mismo directorio)
+
 warnings.filterwarnings('ignore')
 URL_COMUNAS = 'https://raw.githubusercontent.com/caracena/chile-geojson/master/13.geojson'
 PERIODO = {7: 'am', 8: 'am', 18: 'pm', 19: 'pm', 11: 'valle', 12: 'valle', 13: 'valle', 14: 'valle', 15: 'valle'}
@@ -79,7 +81,7 @@ def edad_real(a):
     return a.edad_datos_min + corr
 
 
-COLUMNAS = ['timestamp', 'patente', 'servicio', 'sentido', 'estado', 'edad_datos_min',
+COLUMNAS = ['timestamp', 'patente', 'operador', 'servicio', 'sentido', 'estado', 'edad_datos_min',
             'latitud', 'longitud', 'velocidad_promedio']
 
 
@@ -174,6 +176,28 @@ def main():
     # --- datos GPS
     hab = leer_gps(args.archivo)
     hab['h'] = hab.timestamp.dt.hour
+
+    # --- códigos que no están en el Excel (operadores nuevos desde oct-2026): se asignan por su trazado
+    trips_todos = rd('trips.txt')
+    sh_t = rd('shapes.txt')
+    sh_t[['shape_pt_lat', 'shape_pt_lon']] = sh_t[['shape_pt_lat', 'shape_pt_lon']].astype(float)
+    sh_t['shape_pt_sequence'] = sh_t.shape_pt_sequence.astype(int)
+    geo_todos = {k: LineString(a_xy(g.shape_pt_lon, g.shape_pt_lat))
+                 for k, g in sh_t.sort_values('shape_pt_sequence').groupby('shape_id') if len(g) > 1}
+    formato = inferir_codigos.por_formato(hab.servicio.dropna().unique(), srv2pub)
+    srv2pub.update(formato)
+    nuevos, informe = inferir_codigos.inferir(hab, srv2pub, trips_todos, geo_todos, a_xy)
+    srv2pub.update(nuevos)
+    out.mkdir(parents=True, exist_ok=True)
+    (out / 'mapeo_servicios.json').write_text(json.dumps(
+        {'por_formato': formato, 'por_trazado': nuevos, 'detalle_trazado': informe}, ensure_ascii=False, indent=1),
+        encoding='utf-8')
+    est = pd.Series([i['estado'] for i in informe], dtype=str).value_counts().to_dict()
+    print(f'códigos sin equivalencia en el Excel: {len(formato)} resueltos por formato, '
+          f'{len(nuevos)} por trazado (por sentido: {est})')
+    # operador que hoy opera cada recorrido (el Excel es de feb-2026)
+    nombres = json.loads((Path(__file__).parent.parent / 'data' / 'operadores.json').read_text(encoding='utf-8'))
+    pub2op.update(inferir_codigos.operador_actual(hab, srv2pub, nombres))
     periodo_txt = args.periodo or f"días hábiles, {hab.timestamp.min():%d-%m-%Y} a {hab.timestamp.max():%d-%m-%Y}"
     d = hab[(hab.estado == 'en_movimiento') & (~hab.servicio.fillna('').str.endswith('TS')) &
             (hab.servicio.fillna('') != '')]

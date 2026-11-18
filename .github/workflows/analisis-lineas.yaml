@@ -64,4 +64,4 @@ jobs:
         gh release view analisis-lineas > /dev/null 2>&1 || gh release create analisis-lineas \
           --title "Análisis por línea y tramo" \
           --notes "lineas.json y data_estatico.json del dashboard. Los recalcula .github/workflows/analisis-lineas.yaml."
-        gh release upload analisis-lineas salida/lineas.json salida/data_estatico.json --clobber
+        gh release upload analisis-lineas salida/lineas.json salida/data_estatico.json salida/mapeo_servicios.json --clobber

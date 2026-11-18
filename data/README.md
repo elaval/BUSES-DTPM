@@ -131,8 +131,24 @@ Muestra:
 La API usa códigos internos (`T506`). Para llegar al recorrido que ve el público
 (`506`) se usa el archivo oficial del DTPM `Servicios_decos_09022026.xlsx`: la
 columna `CODIGO_RUTA` sin su última parte (`T506 00I` → `T506`) corresponde a
-`servicio`, y `CODIGO_USUARIO` es el recorrido público. Cubre ~94 % de los
-registros. Algunas variantes (p. ej. `T506e1`) no aparecen en ese archivo.
+`servicio`, y `CODIGO_USUARIO` es el recorrido público.
+
+Ese archivo es de febrero de 2026. Desde la crisis de Metropol (octubre) otros
+operadores cubren recorridos con códigos nuevos, y en noviembre ~13 % de los
+registros de buses en movimiento tenía un código que no está en el archivo. El
+análisis por línea (`scripts/analisis_paraderos.py`, con `scripts/inferir_codigos.py`)
+los resuelve en dos pasos:
+
+1. **Formato**: el GPS escribe las variantes pegadas al número (`T506e1`, `T411c`) y
+   el archivo con espacio (`T506 E1`, `T411 C0`).
+2. **Trazado**: el resto se asigna al recorrido del GTFS cuyo trazado siguen sus
+   buses en ambos sentidos (≥ 85 % de las posiciones a menos de 50 m y ≥ 70 % del
+   trazado cubierto, sin otro recorrido casi igual de bueno). Ej.: `T1998` → 712.
+
+Con eso queda sin recorrido ~0,4 % de esos registros. El detalle de cada código
+(precisión, cobertura, segundo candidato) se publica como `mapeo_servicios.json`
+en el Release `analisis-lineas`. El operador de cada recorrido se toma del GPS
+reciente, porque varios cambiaron de operador desde febrero.
 
 ---
 
