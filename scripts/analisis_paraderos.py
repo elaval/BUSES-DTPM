@@ -50,6 +50,7 @@ from shapely.geometry import LineString, Point, mapping, shape
 from shapely.strtree import STRtree
 
 import inferir_codigos  # noqa: E402  (scripts/, mismo directorio)
+import tiempos_viaje  # noqa: E402
 
 warnings.filterwarnings('ignore')
 URL_COMUNAS = 'https://raw.githubusercontent.com/caracena/chile-geojson/master/13.geojson'
@@ -198,6 +199,14 @@ def main():
     # operador que hoy opera cada recorrido (el Excel es de feb-2026)
     nombres = json.loads((Path(__file__).parent.parent / 'data' / 'operadores.json').read_text(encoding='utf-8'))
     pub2op.update(inferir_codigos.operador_actual(hab, srv2pub, nombres))
+
+    # --- tiempo de viaje (siguiendo a cada bus) y programado (GTFS)
+    tv_real, tv_dias = tiempos_viaje.reales(hab, srv2pub, REC, a_xy)
+    TV = tiempos_viaje.resumen(REC, tv_real, tiempos_viaje.programados(rd, REC, a_xy), limpio)
+    dd = hab[hab.timestamp >= tiempos_viaje.DENSO_DESDE].timestamp
+    tv_periodo = (f'{tv_dias} días hábiles con capturas cada 10 min, del {dd.min():%d-%m} al {dd.max():%d-%m-%Y}'
+                  if len(dd) else '')
+    print(f'tiempo de viaje: {len(TV)} recorridos y sentidos con datos ({tv_periodo})')
     periodo_txt = args.periodo or f"días hábiles, {hab.timestamp.min():%d-%m-%Y} a {hab.timestamp.max():%d-%m-%Y}"
     d = hab[(hab.estado == 'en_movimiento') & (~hab.servicio.fillna('').str.endswith('TS')) &
             (hab.servicio.fillna('') != '')]
@@ -342,11 +351,14 @@ def main():
             tr.append([k, am, pm, va, coords_tramo(r, dr, k, tol=15), aprox])
         L.setdefault(r, {'nombre': routes.get(r, ''), 'operador': pub2op.get(r, ''), 'buses_hora': bh[r], 'sentidos': {}})
         L[r]['sentidos'][dr] = {'destino': R['destino'], 'paraderos': par, 'tramos': tr}
+        if (r, dr) in TV:
+            L[r]['sentidos'][dr]['viaje'] = TV[(r, dr)]
 
     sr = st[st.route_id.isin(L.keys())].groupby('stop_id').route_id.apply(
         lambda x: sorted(set(x), key=lambda r: (len(r), r))).reset_index().merge(stops, on='stop_id')
     red = [[round(r.stop_lat, 5), round(r.stop_lon, 5), limpio(r.stop_name), r.route_id] for r in sr.itertuples()]
-    (out / 'lineas.json').write_text(json.dumps({'lineas': L, 'red': red}, ensure_ascii=False, separators=(',', ':')),
+    (out / 'lineas.json').write_text(json.dumps({'lineas': L, 'red': red, 'viaje_periodo': tv_periodo},
+                                                ensure_ascii=False, separators=(',', ':')),
                                      encoding='utf-8')
     print('lineas.json:', len(L), 'recorridos,', len(red), 'paraderos de la red')
 

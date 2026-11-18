@@ -136,6 +136,10 @@ figure{margin:0}
 <h2 style="font-size:15px">Buses en servicio por hora</h2>
 <p class="note">Mediana por hora de un día hábil (may–nov 2026). Aproximación: buses del recorrido en movimiento o avanzando lento en el momento de cada captura; con solo ~4 capturas al día en ese período no se puede aplicar el criterio exacto de "en servicio", que subestima levemente a los buses completamente detenidos. Se recalculará con las capturas cada 10 minutos.</p>
 <div id="linbuses"></div>
+<h2 style="font-size:15px;margin-top:18px">Tiempo de viaje</h2>
+<p class="note" id="linviajenota"></p>
+<div class="legend"><span><i class="sw" style="background:var(--s1)"></i>La mitad de los viajes tarda menos (mediana)</span><span><i class="sw" style="background:transparent;border-left:2px solid var(--ink2);border-radius:0;width:2px"></i>Uno de cada diez tarda más (percentil 90)</span><span><i class="sw" style="background:var(--s2);height:3px;border-radius:0"></i>Programado (GTFS)</span></div>
+<div id="linviaje"></div>
 <p class="note" style="margin-top:14px">Cada punto es un tramo entre dos paraderos consecutivos, ubicado en su punto medio. Curvas suavizadas con la mediana de 3 tramos; al pasar el cursor se ve el valor de cada tramo. Círculos huecos y trazo claro: valor aproximado, porque el tramo aún tiene pocos registros y se calcula junto con sus vecinos; se reemplaza por su valor propio a medida que llegan datos.</p><div class="legend"><span><i class="sw" style="background:var(--ctx)"></i>Valle (11–16 h)</span><span><i class="sw" style="background:var(--s1)"></i>Punta mañana (7–9 h)</span><span><i class="sw" style="background:var(--s2)"></i>Punta tarde (18–20 h)</span></div>
 <div id="linsent"></div>
 </div>
@@ -264,6 +268,31 @@ cargar('lineas').catch(e=>{document.getElementById('linerr').textContent='No se 
   const eb=document.getElementById('linbuses'); eb.innerHTML='';
   eb.append(Plot.plot({width:W('linbuses'),height:180,marginLeft:40,style:{background:'transparent',fontSize:'12px'},x:{label:'hora',tickFormat:d=>d+'h',padding:0.15},y:{grid:true,label:'buses'},
    marks:[Plot.barY(bh.map((v,h)=>({h,v})),{x:'h',y:'v',fill:C.s1,rx:3,tip:true,title:d=>`${d.h}:00 · ${d.v} buses`}),Plot.ruleY([0])]}));
+  // tiempo de viaje por hora de salida
+  const hm=m=>`${Math.floor(m/60)}:${String(Math.round(m%60)).padStart(2,'0')}`;
+  const hmTxt=m=>m<60?`${Math.round(m)} min`:`${Math.floor(m/60)} h ${String(Math.round(m%60)).padStart(2,'0')} min`;
+  document.getElementById('linviajenota').textContent=`Cuánto demora un bus en recorrer el trazado, según la hora en que sale. Se mide siguiendo a cada bus entre capturas e incluye las detenciones en paraderos, semáforos y congestión${D.viaje_periodo?` (datos: ${D.viaje_periodo})`:''}. Se omiten unos 3 km en cada extremo, donde los buses entran y salen de terminales. Solo se muestran horas con al menos 5 viajes medidos.`;
+  const ev=document.getElementById('linviaje'); ev.innerHTML='';
+  for(const [d,S2] of Object.entries(L.sentidos)){
+   const V=S2.viaje; if(!V) continue;
+   const H=V.horas.map(([h,n,me,p9,pg])=>({h,n,me,p9,pg})), Hm=H.filter(x=>x.me!=null);
+   const ymax=d3.max(H,x=>Math.max(x.p9??0,x.pg??0));
+   const box=document.createElement('div');
+   box.innerHTML=`<p style="margin:10px 0 2px;font-weight:600;font-size:13px">Hacia ${S2.destino} <span style="font-weight:400;color:var(--ink2)">· de ${V.desde} a ${V.hasta} (${V.km} km)</span></p>`;
+   box.append(Plot.plot({width:W('linviaje'),height:210,marginLeft:44,style:{background:'transparent',fontSize:'12px'},
+    x:{label:'hora de salida',domain:d3.range(5,24),tickFormat:h=>h+'h',padding:0.2},
+    y:{grid:true,label:'duración (h:mm)',domain:[0,ymax*1.06],ticks:d3.range(0,ymax*1.06,ymax>150?60:30),tickFormat:hm},
+    marks:[Plot.barY(Hm,{x:'h',y:'me',fill:C.s1,rx:3}),
+     Plot.ruleX(Hm,{x:'h',y1:'me',y2:'p9',stroke:C.ink2,strokeWidth:1.5}),
+     Plot.tickY(Hm,{x:'h',y:'p9',stroke:C.ink2,strokeWidth:1.5,insetLeft:7,insetRight:7}),
+     Plot.tickY(H.filter(x=>x.pg!=null),{x:'h',y:'pg',stroke:C.s2,strokeWidth:3}),
+     Plot.ruleY([0]),
+     Plot.tip(H,Plot.pointerX({x:'h',y:x=>x.me??x.pg,lineWidth:40,title:x=>[`Salida entre ${x.h}:00 y ${x.h}:59`,
+       ...(x.me!=null?[`Mitad de los viajes: menos de ${hmTxt(x.me)}`,`Uno de cada diez: más de ${hmTxt(x.p9)}`]:[`Aún pocos viajes medidos (${x.n})`]),
+       ...(x.pg!=null?[`Programado: ${hmTxt(x.pg)}`]:[]),...(x.me!=null?[`${x.n} viajes medidos`]:[])].join('\n')}))]}));
+   ev.append(box);
+  }
+  if(!ev.children.length) ev.innerHTML='<p class="note">Aún no hay suficientes viajes completos medidos para este recorrido.</p>';
   const es2=document.getElementById('linsent'); es2.innerHTML='';
   for(const [d,S2] of Object.entries(L.sentidos)){
    const PA=S2.paraderos;
