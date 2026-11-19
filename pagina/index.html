@@ -44,6 +44,10 @@ footer{color:var(--muted);font-size:12px;margin-top:24px}
 .vrow{display:grid;grid-template-columns:minmax(130px,190px) 1fr minmax(76px,auto);grid-template-areas:"l b v";gap:10px;align-items:center;margin:3px 0;font-size:13px}
 .vrow .vl{grid-area:l}.vrow .vv{grid-area:v}.vrow .vb{grid-area:b;height:14px}
 @media (max-width:560px){.vrow{grid-template-columns:1fr auto;grid-template-areas:"l v" "b b";row-gap:3px;margin:7px 0}}.vrow .vb i{display:block;height:100%;background:var(--s1);border-radius:3px}
+.prow{display:grid;grid-template-columns:1fr minmax(60px,170px) minmax(56px,auto);grid-template-areas:"l b v";gap:10px;align-items:center;margin:6px 0;font-size:13px}
+.prow .pl{grid-area:l}.prow .pl small{color:var(--ink2);font-size:12px}.prow .vb{grid-area:b;height:12px}.prow .vb i{display:block;height:100%;background:var(--s2);border-radius:3px}
+.prow .vv{grid-area:v;font-weight:600;font-variant-numeric:tabular-nums;white-space:nowrap;text-align:right}
+@media (max-width:560px){.prow{grid-template-columns:1fr auto;grid-template-areas:"l v" "b b";row-gap:3px}}
 .vrow .vv{font-weight:600;font-variant-numeric:tabular-nums;white-space:nowrap}.vres .note{margin:4px 0 0}
 #lmbarra{font-size:12.5px;line-height:1.4;min-height:2.9em;box-sizing:border-box;padding:5px 10px;margin:0 0 6px;border:1px solid var(--border);border-radius:8px;background:var(--surface);color:var(--ink2);display:flex;align-items:center}
 #lmbarra b,#lmbarra .on{color:var(--ink)} #lmbarra .on{font-weight:600} #lmpanel .r{display:flex;flex-wrap:wrap;gap:4px;margin-top:4px}
@@ -149,8 +153,13 @@ figure{margin:0}
 <div class="legend"><span><i class="sw" style="background:var(--s1)"></i>La mitad de los viajes tarda menos (mediana)</span><span><i class="sw" style="background:transparent;border-left:2px solid var(--ink2);border-radius:0;width:2px"></i>Uno de cada diez tarda más (percentil 90)</span><span><i class="sw" style="background:var(--s2);height:3px;border-radius:0"></i>Programado (GTFS)</span></div>
 <div id="linviaje"></div>
 </details>
-<p class="note" style="margin-top:14px">Cada punto es un tramo entre dos paraderos consecutivos, ubicado en su punto medio. Curvas suavizadas con la mediana de 3 tramos; al pasar el cursor se ve el valor de cada tramo. Círculos huecos y trazo claro: valor aproximado, porque el tramo aún tiene pocos registros y se calcula junto con sus vecinos; se reemplaza por su valor propio a medida que llegan datos.</p><div class="legend"><span><i class="sw" style="background:var(--ctx)"></i>Valle (11–16 h)</span><span><i class="sw" style="background:var(--s1)"></i>Punta mañana (7–9 h)</span><span><i class="sw" style="background:var(--s2)"></i>Punta tarde (18–20 h)</span></div>
+<h2 style="font-size:15px;margin-top:18px">Dónde se pierde tiempo en punta</h2>
+<p class="note" id="linperdidanota">Sectores de ~1 km donde la hora punta suma más minutos respecto del valle (11–16 h). Para cada sentido se usa la punta, mañana o tarde, en que más tiempo se pierde. Se calcula con la velocidad de circulación (sin contar detenciones), así que el tiempo real perdido puede ser algo mayor.</p>
+<div id="linperdida"></div>
+<details id="linsentdet" style="margin-top:8px"><summary style="cursor:pointer;font-size:13px;color:var(--ink2)">Ver velocidad tramo a tramo (punta mañana, punta tarde y valle)</summary>
+<p class="note">Cada punto es un tramo entre dos paraderos consecutivos, ubicado en su punto medio. Curvas suavizadas con la mediana de 3 tramos; al pasar el cursor se ve el valor de cada tramo. Círculos huecos y trazo claro: valor aproximado, porque el tramo aún tiene pocos registros y se calcula junto con sus vecinos; se reemplaza por su valor propio a medida que llegan datos.</p><div class="legend"><span><i class="sw" style="background:var(--ctx)"></i>Valle (11–16 h)</span><span><i class="sw" style="background:var(--s1)"></i>Punta mañana (7–9 h)</span><span><i class="sw" style="background:var(--s2)"></i>Punta tarde (18–20 h)</span></div>
 <div id="linsent"></div>
+</details>
 </div>
 
 <div class="card">
@@ -326,27 +335,66 @@ cargar('lineas').catch(e=>{document.getElementById('linerr').textContent='No se 
   };
   det.ontoggle=()=>{if(det.open)detalle()};
   if(det.open) detalle(); else document.getElementById('linviaje').innerHTML='';
-  const es2=document.getElementById('linsent'); es2.innerHTML='';
+  // dónde se pierde tiempo en punta: sectores de ~1 km, minutos extra respecto del valle
+  const ep=document.getElementById('linperdida'); ep.innerHTML='';
+  const fmtKm=x=>x.toFixed(1).replace('.',',');
+  // nombre de un sector: "Calle, entre A y B"; si A y B coinciden, "Calle, a la altura de A"
+  const nomSector=(n1,n2)=>{const [c1,x1]=cc(n1),[c2,x2]=cc(n2),c=c1||c2;
+   const t=x1&&x2&&x1===x2?`${c?c+', a':'A'} la altura de ${x1}`:nomTramo(n1,n2);return t.charAt(0).toUpperCase()+t.slice(1)};
   for(const [d,S2] of Object.entries(L.sentidos)){
    const PA=S2.paraderos;
-   const P2=S2.tramos.map(([k,am,pm,va,,f=0])=>({km:(PA[k][0]+PA[k+1][0])/2,k0:PA[k][0],k1:PA[k+1][0],n:nomTramo(PA[k][1],PA[k+1][1]),am,pm,va,xa:!!(f&1),xp:!!(f&2),xv:!!(f&4)}));
-   const sm=key=>P2.map((r,i)=>{const w=P2.slice(Math.max(0,i-1),i+2).map(q=>q[key]).filter(x=>x!=null);return r[key]==null?null:med(w)});
-   const sv={va:sm('va'),am:sm('am'),pm:sm('pm')};
-   const lgAll=P2.flatMap((r,i)=>[['Valle',sv.va[i],r.va,r.xv],['Punta mañana',sv.am[i],r.am,r.xa],['Punta tarde',sv.pm[i],r.pm,r.xp]].map(([k,v,raw,ap])=>({km:r.km,n:r.n,k,v:v??NaN,raw,ap})));
-   const lgOwn=lgAll.map(q=>q.ap?{...q,v:NaN}:q);   // trazo firme: solo tramos con datos propios
-   const lg=lgAll.filter(q=>!isNaN(q.v));
-   const box=document.createElement('div'); box.style.marginTop='14px';
-   const worst=P2.map(r=>({...r,a:r.xa?null:r.am,b:r.xp?null:r.pm})).filter(r=>r.a!=null||r.b!=null).map(r=>({...r,p:Math.min(r.a??99,r.b??99)})).sort((a,b)=>a.p-b.p).slice(0,3);
-   box.innerHTML=`<h2 style="font-size:15px">Velocidad por tramo a lo largo del recorrido · hacia ${S2.destino} (${d==='I'?'ida':'regreso'})</h2><p class="note">${lg.length?'Tramos más lentos en punta: '+worst.map(w=>`${w.n} (${w.p.toFixed(1)} km/h)`).join('; '):'Sin datos suficientes para este sentido.'}</p>`;
-   es2.append(box);
-   if(!lg.length) continue;
-   const w=W('linsent');
-   box.append(Plot.plot({width:w,height:230,marginLeft:40,style:{background:'transparent',fontSize:'12px'},x:{label:'km desde el inicio',grid:false},y:{grid:true,label:'km/h',domain:[0,Math.max(30,d3.max(lg,q=>q.v))]},
-    color:{domain:['Valle','Punta mañana','Punta tarde'],range:[C.ctx,C.s1,C.s2]},
-    marks:[Plot.lineY(lgAll,{x:'km',y:'v',z:'k',stroke:'k',strokeWidth:2,strokeOpacity:0.3}),Plot.lineY(lgOwn,{x:'km',y:'v',z:'k',stroke:'k',strokeWidth:2}),
-     Plot.dot(lg.filter(q=>!q.ap),{x:'km',y:'v',fill:'k',r:1.5}),Plot.dot(lg.filter(q=>q.ap),{x:'km',y:'v',stroke:'k',fill:'var(--surface)',strokeWidth:1,r:2}),
-     Plot.tip(lg,Plot.pointer({x:'km',y:'v',title:q=>`Tramo ${q.n}\nkm ${q.km.toFixed(1)} · ${q.k}: ${q.raw.toFixed(1)} km/h${q.ap?' (aproximado, con tramos vecinos)':''}`}))]}));
+   const T=S2.tramos.map(([k,am,pm,va,,f=0])=>({k,len:PA[k+1][0]-PA[k][0],am,pm,va,f}));
+   const ok=(t,p)=>t[p]!=null&&t.va!=null&&t.len>0;
+   const per=[['am','la punta de la mañana (7–9 h)',1],['pm','la punta de la tarde (18–20 h)',2]]
+    .map(([p,l,b])=>({p,l,b,tot:d3.sum(T.filter(t=>ok(t,p)),t=>t.len*60*(1/t[p]-1/t.va))})).sort((a,b)=>b.tot-a.tot)[0];
+   const sec=[]; let c=null;
+   for(const t of T){
+    if(!c) c={i0:t.k,i1:t.k,len:0,tp:0,tv:0,lok:0,lap:0};
+    c.i1=t.k; c.len+=t.len;
+    if(ok(t,per.p)){c.tp+=t.len/t[per.p]*60;c.tv+=t.len/t.va*60;c.lok+=t.len;if(t.f&(per.b|4))c.lap+=t.len}
+    if(c.len>=1){sec.push(c);c=null}
+   }
+   if(c) sec.push(c);
+   const top=sec.filter(x=>x.lok>=0.5*x.len&&x.tp-x.tv>=0.5)
+    .map(x=>({...x,min:x.tp-x.tv,vp:x.lok/(x.tp/60),vv:x.lok/(x.tv/60),n:nomSector(PA[x.i0][1],PA[x.i1+1][1]),k0:PA[x.i0][0],k1:PA[x.i1+1][0],ap:x.lap>x.lok/2}))
+    .sort((a,b)=>b.min-a.min).slice(0,3);
+   const lenTot=PA.at(-1)[0]-PA[0][0], lenDat=d3.sum(T.filter(t=>ok(t,per.p)),t=>t.len);
+   if(!lenDat) continue;
+   const box=document.createElement('div'); box.className='vres';
+   const tot=Math.round(per.tot), cob=lenDat<0.9*lenTot?` (calculado sobre ${Math.round(lenDat)} de ${Math.round(lenTot)} km con datos)`:'';
+   box.innerHTML=`<p class="vt">Hacia ${S2.destino}</p>`+
+    top.map(x=>`<div class="prow"><span class="pl">${x.n}${x.ap?' <small>(aprox.)</small>':''}<br><small>km ${fmtKm(x.k0)}–${fmtKm(x.k1)} · ${Math.round(x.vp)} km/h en punta, ${Math.round(x.vv)} en valle</small></span><span class="vb"><i style="width:${(x.min/top[0].min*100).toFixed(1)}%"></i></span><span class="vv">+${Math.round(x.min)}\u00a0min</span></div>`).join('')+
+    `<p class="note">${tot>=1?`En ${per.l}, el recorrido completo suma unos ${tot}\u00a0min respecto del valle${cob}.`:`En punta, este sentido no es más lento que en el valle${cob}.`}</p>`;
+   ep.append(box);
   }
+  if(!ep.children.length) ep.innerHTML='<p class="note">Aún no hay datos suficientes de velocidad para este recorrido.</p>';
+  // velocidad tramo a tramo: se dibuja al abrirlo (cerrado no tiene ancho)
+  const sdet=document.getElementById('linsentdet');
+  const sentDetalle=()=>{
+    const es2=document.getElementById('linsent'); es2.innerHTML='';
+    for(const [d,S2] of Object.entries(L.sentidos)){
+     const PA=S2.paraderos;
+     const P2=S2.tramos.map(([k,am,pm,va,,f=0])=>({km:(PA[k][0]+PA[k+1][0])/2,k0:PA[k][0],k1:PA[k+1][0],n:nomTramo(PA[k][1],PA[k+1][1]),am,pm,va,xa:!!(f&1),xp:!!(f&2),xv:!!(f&4)}));
+     const sm=key=>P2.map((r,i)=>{const w=P2.slice(Math.max(0,i-1),i+2).map(q=>q[key]).filter(x=>x!=null);return r[key]==null?null:med(w)});
+     const sv={va:sm('va'),am:sm('am'),pm:sm('pm')};
+     const lgAll=P2.flatMap((r,i)=>[['Valle',sv.va[i],r.va,r.xv],['Punta mañana',sv.am[i],r.am,r.xa],['Punta tarde',sv.pm[i],r.pm,r.xp]].map(([k,v,raw,ap])=>({km:r.km,n:r.n,k,v:v??NaN,raw,ap})));
+     const lgOwn=lgAll.map(q=>q.ap?{...q,v:NaN}:q);   // trazo firme: solo tramos con datos propios
+     const lg=lgAll.filter(q=>!isNaN(q.v));
+     const box=document.createElement('div'); box.style.marginTop='14px';
+     const worst=P2.map(r=>({...r,a:r.xa?null:r.am,b:r.xp?null:r.pm})).filter(r=>r.a!=null||r.b!=null).map(r=>({...r,p:Math.min(r.a??99,r.b??99)})).sort((a,b)=>a.p-b.p).slice(0,3);
+     box.innerHTML=`<h2 style="font-size:15px">Velocidad por tramo a lo largo del recorrido · hacia ${S2.destino} (${d==='I'?'ida':'regreso'})</h2><p class="note">${lg.length?'Tramos más lentos en punta: '+worst.map(w=>`${w.n} (${w.p.toFixed(1)} km/h)`).join('; '):'Sin datos suficientes para este sentido.'}</p>`;
+     es2.append(box);
+     if(!lg.length) continue;
+     const w=W('linsent');
+     box.append(Plot.plot({width:w,height:230,marginLeft:40,style:{background:'transparent',fontSize:'12px'},x:{label:'km desde el inicio',grid:false},y:{grid:true,label:'km/h',domain:[0,Math.max(30,d3.max(lg,q=>q.v))]},
+      color:{domain:['Valle','Punta mañana','Punta tarde'],range:[C.ctx,C.s1,C.s2]},
+      marks:[Plot.lineY(lgAll,{x:'km',y:'v',z:'k',stroke:'k',strokeWidth:2,strokeOpacity:0.3}),Plot.lineY(lgOwn,{x:'km',y:'v',z:'k',stroke:'k',strokeWidth:2}),
+       Plot.dot(lg.filter(q=>!q.ap),{x:'km',y:'v',fill:'k',r:1.5}),Plot.dot(lg.filter(q=>q.ap),{x:'km',y:'v',stroke:'k',fill:'var(--surface)',strokeWidth:1,r:2}),
+       Plot.tip(lg,Plot.pointer({x:'km',y:'v',title:q=>`Tramo ${q.n}\nkm ${q.km.toFixed(1)} · ${q.k}: ${q.raw.toFixed(1)} km/h${q.ap?' (aproximado, con tramos vecinos)':''}`}))]}));
+    }
+  };
+  sdet.ontoggle=()=>{if(sdet.open)sentDetalle()};
+  if(sdet.open) sentDetalle(); else document.getElementById('linsent').innerHTML='';
  }
  document.querySelectorAll('#lmper button').forEach(b=>b.onclick=()=>{lmP=b.dataset.p;document.querySelectorAll('#lmper button').forEach(x=>x.classList.toggle('on',x===b));mapaLinea(cur)});
  const seqL=['#cde2fb','#86b6ef','#3987e5','#1c5cab','#0d366b'], binL=v=>v>=18?0:v>=14?1:v>=11?2:v>=8?3:4;
