@@ -114,7 +114,8 @@ def programados(rd, REC, a_xy):
 
 
 def resumen(REC, reales_, prog, limpio):
-    """{(recorrido, sentido): {'km', 'desde', 'hasta', 'horas': [[h, n, mediana, p90, programado], ...]}}"""
+    """{(recorrido, sentido): {'km', 'desde', 'hasta', 'tipico', 'n', 'horas': [[h, n, mediana, p90, programado], ...]}}
+    tipico: mediana de todos los viajes del día (5 a 23 h), el "viaje típico"."""
     out = {}
     for (r, dr), R in REC.items():
         v = reales_.get((r, dr))
@@ -132,5 +133,7 @@ def resumen(REC, reales_, prog, limpio):
         A, B = limites(R['line'].length)
         s = R['stops']
         cerca = lambda km: limpio(s.stop_name.iloc[int(np.argmin(np.abs(R['ch'] - km)))])
-        out[(r, dr)] = {'km': round((B - A) / 1000, 1), 'desde': cerca(A), 'hasta': cerca(B), 'horas': filas}
+        dia = v[v.h.isin(list(HORAS))]['min']
+        out[(r, dr)] = {'km': round((B - A) / 1000, 1), 'desde': cerca(A), 'hasta': cerca(B),
+                        'tipico': round(float(dia.median())), 'n': int(len(dia)), 'horas': filas}
     return out

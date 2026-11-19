@@ -19,7 +19,7 @@ La rama también sirve el dashboard en GitHub Pages:
 | `data/datos_recientes.parquet` | Un registro por bus y captura, con posición y velocidad. Solo los últimos 7 días (float32, compresión zstd) | ~30 MB | Cada captura (ventana móvil) |
 | `data_vivo.json` | Resumen liviano para el dashboard (últimos 7 días) | 5 KB | Cada captura |
 | `data_estatico.json` | Velocidad por tramo entre paraderos (toda la red), comunas y tramos más lentos | 400 KB | Días hábiles, ~9:30 y ~20:30 (`analisis-lineas.yaml`) |
-| `lineas.json` | Análisis por recorrido: buses por hora, paraderos y velocidad por tramo (`[k, punta mañana, punta tarde, valle, trazado, aprox]`; `aprox` marca con bits 1/2/4 los valores calculados junto con tramos vecinos por tener menos de 8 registros propios); tiempo de viaje por sentido y hora de salida (`viaje`: mediana, percentil 90 y programado, siguiendo a cada bus entre capturas; ver `scripts/tiempos_viaje.py`); índice paradero → recorridos | 7 MB | Días hábiles, ~9:30 y ~20:30 (`analisis-lineas.yaml`) |
+| `lineas.json` | Análisis por recorrido: buses por hora, paraderos y velocidad por tramo (`[k, punta mañana, punta tarde, valle, trazado, aprox]`; `aprox` marca con bits 1/2/4 los valores calculados junto con tramos vecinos por tener menos de 8 registros propios); tiempo de viaje por sentido y hora de salida (`viaje`: por hora, mediana, percentil 90 y programado; además la mediana del día, `tipico`; siguiendo a cada bus entre capturas; ver `scripts/tiempos_viaje.py`); índice paradero → recorridos | 7 MB | Días hábiles, ~9:30 y ~20:30 (`analisis-lineas.yaml`) |
 | `index.html` | Página del dashboard | — | Con cada cambio en `main` |
 
 Además, el detalle bus por bus de **todas las capturas del 8 de mayo al 14 de

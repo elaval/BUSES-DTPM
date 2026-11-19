@@ -40,6 +40,11 @@ footer{color:var(--muted);font-size:12px;margin-top:24px}
 .deftab .sw{vertical-align:-1px}
 #lmpanel{position:absolute;z-index:15;max-width:300px;background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:8px 10px;font-size:12px;box-shadow:0 6px 20px rgba(0,0,0,.15);pointer-events:auto}
 #lmpanel .t{font-weight:600;margin-bottom:4px}
+.vres{margin:10px 0 4px;max-width:780px}.vres .vt{margin:0 0 4px;font-weight:600;font-size:13px}.vres .vt span{font-weight:400;color:var(--ink2)}
+.vrow{display:grid;grid-template-columns:minmax(130px,190px) 1fr minmax(76px,auto);grid-template-areas:"l b v";gap:10px;align-items:center;margin:3px 0;font-size:13px}
+.vrow .vl{grid-area:l}.vrow .vv{grid-area:v}.vrow .vb{grid-area:b;height:14px}
+@media (max-width:560px){.vrow{grid-template-columns:1fr auto;grid-template-areas:"l v" "b b";row-gap:3px;margin:7px 0}}.vrow .vb i{display:block;height:100%;background:var(--s1);border-radius:3px}
+.vrow .vv{font-weight:600;font-variant-numeric:tabular-nums;white-space:nowrap}.vres .note{margin:4px 0 0}
 #lmbarra{font-size:12.5px;line-height:1.4;min-height:2.9em;box-sizing:border-box;padding:5px 10px;margin:0 0 6px;border:1px solid var(--border);border-radius:8px;background:var(--surface);color:var(--ink2);display:flex;align-items:center}
 #lmbarra b,#lmbarra .on{color:var(--ink)} #lmbarra .on{font-weight:600} #lmpanel .r{display:flex;flex-wrap:wrap;gap:4px;margin-top:4px}
 #lmpanel button{font:inherit;font-size:12px;padding:2px 7px;border-radius:6px;border:1px solid var(--border);background:var(--bg);color:var(--ink);cursor:pointer}
@@ -138,8 +143,12 @@ figure{margin:0}
 <div id="linbuses"></div>
 <h2 style="font-size:15px;margin-top:18px">Tiempo de viaje</h2>
 <p class="note" id="linviajenota"></p>
+<div id="linviajeres"></div>
+<details id="linviajedet" style="margin-top:8px"><summary style="cursor:pointer;font-size:13px;color:var(--ink2)">Ver detalle por hora (mediana, percentil 90 y tiempo programado)</summary>
+<p class="note">Cada barra es una hora de salida. Solo se muestran horas con al menos 5 viajes medidos.</p>
 <div class="legend"><span><i class="sw" style="background:var(--s1)"></i>La mitad de los viajes tarda menos (mediana)</span><span><i class="sw" style="background:transparent;border-left:2px solid var(--ink2);border-radius:0;width:2px"></i>Uno de cada diez tarda más (percentil 90)</span><span><i class="sw" style="background:var(--s2);height:3px;border-radius:0"></i>Programado (GTFS)</span></div>
 <div id="linviaje"></div>
+</details>
 <p class="note" style="margin-top:14px">Cada punto es un tramo entre dos paraderos consecutivos, ubicado en su punto medio. Curvas suavizadas con la mediana de 3 tramos; al pasar el cursor se ve el valor de cada tramo. Círculos huecos y trazo claro: valor aproximado, porque el tramo aún tiene pocos registros y se calcula junto con sus vecinos; se reemplaza por su valor propio a medida que llegan datos.</p><div class="legend"><span><i class="sw" style="background:var(--ctx)"></i>Valle (11–16 h)</span><span><i class="sw" style="background:var(--s1)"></i>Punta mañana (7–9 h)</span><span><i class="sw" style="background:var(--s2)"></i>Punta tarde (18–20 h)</span></div>
 <div id="linsent"></div>
 </div>
@@ -270,29 +279,53 @@ cargar('lineas').catch(e=>{document.getElementById('linerr').textContent='No se 
    marks:[Plot.barY(bh.map((v,h)=>({h,v})),{x:'h',y:'v',fill:C.s1,rx:3,tip:true,title:d=>`${d.h}:00 · ${d.v} buses`}),Plot.ruleY([0])]}));
   // tiempo de viaje por hora de salida
   const hm=m=>`${Math.floor(m/60)}:${String(Math.round(m%60)).padStart(2,'0')}`;
-  const hmTxt=m=>m<60?`${Math.round(m)} min`:`${Math.floor(m/60)} h ${String(Math.round(m%60)).padStart(2,'0')} min`;
-  document.getElementById('linviajenota').textContent=`Cuánto demora un bus en recorrer el trazado, según la hora en que sale. Se mide siguiendo a cada bus entre capturas e incluye las detenciones en paraderos, semáforos y congestión${D.viaje_periodo?` (datos: ${D.viaje_periodo})`:''}. Se omiten unos 3 km en cada extremo, donde los buses entran y salen de terminales. Solo se muestran horas con al menos 5 viajes medidos.`;
-  const ev=document.getElementById('linviaje'); ev.innerHTML='';
+  const hmTxt=m=>m<60?`${Math.round(m)}\u00a0min`:`${Math.floor(m/60)}\u00a0h\u00a0${String(Math.round(m%60)).padStart(2,'0')}\u00a0min`;
+  document.getElementById('linviajenota').textContent=`Cuánto demora un bus en recorrer el trazado (sin los ~3 km de cada extremo, donde entra y sale de terminales), incluidas las detenciones en paraderos, semáforos y congestión. Se mide siguiendo a cada bus entre capturas${D.viaje_periodo?` (${D.viaje_periodo})`:''}.`;
+  // resumen: hora más rápida, viaje típico y hora más lenta (por la mediana de cada hora)
+  const vres=document.getElementById('linviajeres'); vres.innerHTML='';
+  const medPond=H=>{const o=[...H].sort((a,b)=>a.me-b.me),t=d3.sum(o,x=>x.n);let c=0;for(const x of o){c+=x.n;if(c>=t/2)return x.me}};
   for(const [d,S2] of Object.entries(L.sentidos)){
    const V=S2.viaje; if(!V) continue;
-   const H=V.horas.map(([h,n,me,p9,pg])=>({h,n,me,p9,pg})), Hm=H.filter(x=>x.me!=null);
-   const ymax=d3.max(H,x=>Math.max(x.p9??0,x.pg??0));
-   const box=document.createElement('div');
-   box.innerHTML=`<p style="margin:10px 0 2px;font-weight:600;font-size:13px">Hacia ${S2.destino} <span style="font-weight:400;color:var(--ink2)">· de ${V.desde} a ${V.hasta} (${V.km} km)</span></p>`;
-   box.append(Plot.plot({width:W('linviaje'),height:210,marginLeft:44,style:{background:'transparent',fontSize:'12px'},
-    x:{label:'hora de salida',domain:d3.range(5,24),tickFormat:h=>h+'h',padding:0.2},
-    y:{grid:true,label:'duración (h:mm)',domain:[0,ymax*1.06],ticks:d3.range(0,ymax*1.06,ymax>150?60:30),tickFormat:hm},
-    marks:[Plot.barY(Hm,{x:'h',y:'me',fill:C.s1,rx:3}),
-     Plot.ruleX(Hm,{x:'h',y1:'me',y2:'p9',stroke:C.ink2,strokeWidth:1.5}),
-     Plot.tickY(Hm,{x:'h',y:'p9',stroke:C.ink2,strokeWidth:1.5,insetLeft:7,insetRight:7}),
-     Plot.tickY(H.filter(x=>x.pg!=null),{x:'h',y:'pg',stroke:C.s2,strokeWidth:3}),
-     Plot.ruleY([0]),
-     Plot.tip(H,Plot.pointerX({x:'h',y:x=>x.me??x.pg,lineWidth:40,title:x=>[`Salida entre ${x.h}:00 y ${x.h}:59`,
-       ...(x.me!=null?[`Mitad de los viajes: menos de ${hmTxt(x.me)}`,`Uno de cada diez: más de ${hmTxt(x.p9)}`]:[`Aún pocos viajes medidos (${x.n})`]),
-       ...(x.pg!=null?[`Programado: ${hmTxt(x.pg)}`]:[]),...(x.me!=null?[`${x.n} viajes medidos`]:[])].join('\n')}))]}));
-   ev.append(box);
+   const H=V.horas.map(([h,n,me,p9,pg])=>({h,n,me,p9,pg})).filter(x=>x.me!=null);
+   let ok=H.filter(x=>x.n>=10); if(ok.length<2) ok=H; if(!ok.length) continue;
+   const rap=ok.reduce((a,b)=>b.me<a.me?b:a), len=ok.reduce((a,b)=>b.me>a.me?b:a), tip=V.tipico??medPond(H);
+   const filas=[['Hora más rápida',rap.h,rap.me,0.45],['Viaje típico del día',null,tip,0.75],['Hora más lenta',len.h,len.me,1]];
+   let frase=rap.h!==len.h?`A las ${len.h}&nbsp;h el viaje demora ${hmTxt(len.me-rap.me)} más que a las ${rap.h}&nbsp;h.`:'';
+   if(len.pg!=null&&Math.abs(len.me-len.pg)>=10) frase+=` En la hora más lenta va ${hmTxt(Math.abs(len.me-len.pg))} ${len.me>len.pg?'por sobre':'por debajo de'} lo programado.`;
+   const box=document.createElement('div'); box.className='vres';
+   box.innerHTML=`<p class="vt">Hacia ${S2.destino} <span>· de ${V.desde} a ${V.hasta} (${V.km} km)</span></p>`+
+    filas.map(([l,h,m,o])=>`<div class="vrow"><span class="vl">${l}${h!=null?` · <b>${h}&nbsp;h</b>`:''}</span><span class="vb"><i style="width:${(m/len.me*100).toFixed(1)}%;opacity:${o}"></i></span><span class="vv">${hmTxt(m)}</span></div>`).join('')+
+    (frase?`<p class="note">${frase}</p>`:'');
+   vres.append(box);
   }
-  if(!ev.children.length) ev.innerHTML='<p class="note">Aún no hay suficientes viajes completos medidos para este recorrido.</p>';
+  if(!vres.children.length) vres.innerHTML='<p class="note">Aún no hay suficientes viajes completos medidos para este recorrido.</p>';
+  // detalle por hora: se dibuja al abrirlo (cerrado no tiene ancho)
+  const det=document.getElementById('linviajedet');
+  const detalle=()=>{
+    const ev=document.getElementById('linviaje'); ev.innerHTML='';
+    for(const [d,S2] of Object.entries(L.sentidos)){
+     const V=S2.viaje; if(!V) continue;
+     const H=V.horas.map(([h,n,me,p9,pg])=>({h,n,me,p9,pg})), Hm=H.filter(x=>x.me!=null);
+     const ymax=d3.max(H,x=>Math.max(x.p9??0,x.pg??0));
+     const box=document.createElement('div');
+     box.innerHTML=`<p style="margin:10px 0 2px;font-weight:600;font-size:13px">Hacia ${S2.destino} <span style="font-weight:400;color:var(--ink2)">· de ${V.desde} a ${V.hasta} (${V.km} km)</span></p>`;
+     box.append(Plot.plot({width:W('linviaje'),height:210,marginLeft:44,style:{background:'transparent',fontSize:'12px'},
+      x:{label:'hora de salida',domain:d3.range(5,24),tickFormat:h=>h+'h',padding:0.2},
+      y:{grid:true,label:'duración (h:mm)',domain:[0,ymax*1.06],ticks:d3.range(0,ymax*1.06,ymax>150?60:30),tickFormat:hm},
+      marks:[Plot.barY(Hm,{x:'h',y:'me',fill:C.s1,rx:3}),
+       Plot.ruleX(Hm,{x:'h',y1:'me',y2:'p9',stroke:C.ink2,strokeWidth:1.5}),
+       Plot.tickY(Hm,{x:'h',y:'p9',stroke:C.ink2,strokeWidth:1.5,insetLeft:7,insetRight:7}),
+       Plot.tickY(H.filter(x=>x.pg!=null),{x:'h',y:'pg',stroke:C.s2,strokeWidth:3}),
+       Plot.ruleY([0]),
+       Plot.tip(H,Plot.pointerX({x:'h',y:x=>x.me??x.pg,lineWidth:40,title:x=>[`Salida entre ${x.h}:00 y ${x.h}:59`,
+         ...(x.me!=null?[`Mitad de los viajes: menos de ${hmTxt(x.me)}`,`Uno de cada diez: más de ${hmTxt(x.p9)}`]:[`Aún pocos viajes medidos (${x.n})`]),
+         ...(x.pg!=null?[`Programado: ${hmTxt(x.pg)}`]:[]),...(x.me!=null?[`${x.n} viajes medidos`]:[])].join('\n')}))]}));
+     ev.append(box);
+    }
+    if(!ev.children.length) ev.innerHTML='<p class="note">Aún no hay suficientes viajes completos medidos para este recorrido.</p>';
+  };
+  det.ontoggle=()=>{if(det.open)detalle()};
+  if(det.open) detalle(); else document.getElementById('linviaje').innerHTML='';
   const es2=document.getElementById('linsent'); es2.innerHTML='';
   for(const [d,S2] of Object.entries(L.sentidos)){
    const PA=S2.paraderos;
