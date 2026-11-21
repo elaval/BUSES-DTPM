@@ -96,8 +96,7 @@ figure{margin:0}
 <div class="grid2">
 <div class="card">
 <h2>Día hábil típico</h2>
-<p class="note">Buses en movimiento por hora (mediana).</p>
-<div class="legend"><span><i class="sw" style="background:var(--ctx)"></i>Histórico may–nov</span><span><i class="sw" style="background:var(--s1)"></i>Últimos 7 días</span></div>
+<p class="note" id="perfilnota">Buses en servicio por hora en un día hábil (mediana de los días hábiles de los últimos 7 días).</p>
 <div id="perfil"></div>
 </div>
 <div class="card">
@@ -219,10 +218,13 @@ document.getElementById('serie').append(Plot.plot({width:W('serie'),height:280,m
   Plot.tip(rala,Plot.pointer({x:'t',y:'mov',title:d=>`${es.format('%a %e %b, %H:%M')(d.t)}\nEn movimiento: ${fmt(d.mov)}\n(captura antigua: no permite calcular buses en servicio)`}))
  ].filter(Boolean)}));
 // perfil
-const pf=V.perfil.flatMap(d=>[{h:d.h,k:'Histórico',v:d.historico}].concat(d.semana==null?[]:[{h:d.h,k:'Últimos 7 días',v:d.semana}]));
+// buses en servicio por hora, mediana de los días hábiles de los últimos 7 días
+const pf=V.perfil.map(d=>({h:d.h,v:d.servicio})).filter(d=>d.v!=null);
+if(V.perfil_dias) document.getElementById('perfilnota').textContent=`Buses en servicio por hora en un día hábil: mediana de los ${V.perfil_dias} días hábiles de los últimos 7 días. Es la misma medida del gráfico de los últimos 7 días.`;
 document.getElementById('perfil').append(Plot.plot({width:W('perfil'),height:240,marginLeft:48,style:{background:'transparent',fontSize:'12px'},
- x:{label:'hora',domain:[0,23],ticks:[0,3,6,9,12,15,18,21]},y:{grid:true,label:'buses en movimiento',tickFormat:fmt},color:{domain:['Histórico','Últimos 7 días'],range:[C.ctx,C.s1]},
- marks:[Plot.lineY(pf,{x:'h',y:'v',stroke:'k',strokeWidth:2}),Plot.dot(pf.filter(d=>d.k!=='Histórico'),{x:'h',y:'v',fill:'k',r:3}),Plot.tip(pf,Plot.pointer({x:'h',y:'v',title:d=>`${d.h}:00 · ${d.k}: ${fmt(d.v)}`}))]}));
+ x:{label:'hora',domain:[0,23],ticks:[0,3,6,9,12,15,18,21]},y:{grid:true,label:'buses en servicio',tickFormat:fmt,domain:[0,Math.max(1000,d3.max(pf,d=>d.v)||0)*1.08]},
+ marks:[Plot.areaY(pf,{x:'h',y:'v',fill:C.s1,fillOpacity:0.15}),Plot.lineY(pf,{x:'h',y:'v',stroke:C.s1,strokeWidth:2}),Plot.dot(pf,{x:'h',y:'v',fill:C.s1,r:3}),
+  Plot.tip(pf,Plot.pointer({x:'h',y:'v',title:d=>`${d.h}:00–${d.h}:59\nBuses en servicio: ${fmt(d.v)}`}))]}));
 // operadores
 const ops=V.ahora.map(d=>({n:d.nombre.replace(/^U\d+ - /,''),oc:d.op_com??null,mov:d.mov,flota:d.flota_7d||null})).map(d=>({...d,act:d.oc==null?d.mov:d.oc})).sort((a,b)=>(b.flota??b.act)-(a.flota??a.act));
 const tieneF=ops.some(d=>d.flota);

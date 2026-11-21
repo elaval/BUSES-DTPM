@@ -38,15 +38,6 @@ ahora = [{'id': int(r.operador), 'nombre': ops.get(str(int(r.operador)), f'Opera
           'total': int(r.total_buses), 'mov': int(r.buses_en_movimiento),
           'sin': (None if pd.isna(r.buses_sin_senal) else int(r.buses_sin_senal))} for r in u.itertuples()]
 
-# Perfil horario de días hábiles: histórico completo vs últimos 7 días (mediana por hora)
-t = op.groupby('timestamp').buses_en_movimiento.sum()
-t = t[t.index.dayofweek < 5]
-hist = t.groupby(t.index.hour).median()
-rec = t[t.index > ini]
-rec = rec.groupby(rec.index.hour).median()
-perfil = [{'h': k, 'historico': int(hist.get(k, 0)), 'semana': (int(rec[k]) if k in rec else None)}
-          for k in range(24)]
-
 # Flota de referencia: buses distintos (patentes) con señal en los últimos 7 días
 r = pd.read_parquet(local_r if local_r.exists() else BASE + 'data/data/datos_recientes.parquet')
 r7 = r[r.timestamp > r.timestamp.max() - pd.Timedelta(days=7)]
@@ -69,6 +60,12 @@ dmin = tsu.diff().dt.total_seconds() / 60
 d2min = tsu.diff(2).dt.total_seconds() / 60
 densa = set(tsu[(dmin <= VENTANA_OPERANDO_MIN) & (d2min <= 40)])
 opx = m.groupby('timestamp')[['opc', 'opt', 'opc_mov']].sum()
+
+# Día hábil típico: buses en servicio, mediana por hora de los días hábiles de los últimos 7 días
+# (solo capturas cada ~10 min: la misma medida del gráfico de los últimos 7 días)
+pv = opx.opc[[t in densa and t.dayofweek < 5 for t in opx.index]]
+perfil = [{'h': int(k), 'servicio': int(v)} for k, v in pv.groupby(pv.index.hour).median().items()]
+perfil_dias = int(pv.index.normalize().nunique())
 ult = m[m.timestamp == m.timestamp.max()].groupby('operador')[['opc', 'opt']].sum()
 
 for o_ in ahora:
@@ -85,7 +82,7 @@ for t, a, b, c, n in serie_base:
     serie.append(fila)
 
 out = {'actualizado': fin.strftime('%Y-%m-%dT%H:%M'), 'capturas_7d': int(len(agg)), 'flota_7d': flota_7d,
-       'serie': serie, 'ahora': ahora, 'perfil': perfil}
+       'serie': serie, 'ahora': ahora, 'perfil': perfil, 'perfil_dias': perfil_dias}
 salida = sys.argv[1] if len(sys.argv) > 1 else 'data_vivo.json'
 Path(salida).write_text(json.dumps(out, ensure_ascii=False, separators=(',', ':')), encoding='utf-8')
 print('data_vivo.json:', out['actualizado'], len(serie), 'capturas')
