@@ -100,7 +100,8 @@ figure{margin:0}
 <div id="perfil"></div>
 </div>
 <div class="card">
-<h2>Buses en servicio por operador, última captura</h2>
+<h2>Buses en servicio por operador</h2>
+<p id="opsCaptura" style="margin:-4px 0 4px;font-size:13px;font-weight:600"></p>
 <p class="note" id="opnote"></p>
 <div class="legend"><span><i class="sw" style="background:var(--s1)"></i>En servicio</span><span><i class="sw" style="background:var(--ctx);opacity:.45"></i>Flota (7 días)</span></div>
 <div id="ops"></div>
@@ -108,11 +109,17 @@ figure{margin:0}
 </div>
 
 <div class="card">
-<h2>Velocidad de buses por tramo</h2>
+<h2>Velocidad de buses por tramo · toda la red</h2>
 <p class="note" id="mapnote"></p>
 <div class="tabs"><button id="tp" class="on">Velocidad en punta</button><button id="tc">Caída punta vs valle</button></div>
 <div id="leg"></div>
 <div id="mapa"></div>
+</div>
+
+<div class="card">
+<h2>Tramos más lentos de la red en hora punta</h2>
+<p class="note">Considera todos los recorridos de buses, no una línea en particular. Tramos entre dos paraderos consecutivos usados por al menos 2 recorridos; se muestra el más lento de cada calle y comuna. Velocidad mediana de los buses en movimiento (km/h).</p>
+<div id="tramos"></div>
 </div>
 
 <div class="card" id="linea-card">
@@ -159,12 +166,6 @@ figure{margin:0}
 <p class="note">Cada punto es un tramo entre dos paraderos consecutivos, ubicado en su punto medio. Curvas suavizadas con la mediana de 3 tramos; al pasar el cursor se ve el valor de cada tramo. Círculos huecos y trazo claro: valor aproximado, porque el tramo aún tiene pocos registros y se calcula junto con sus vecinos; se reemplaza por su valor propio a medida que llegan datos.</p><div class="legend"><span><i class="sw" style="background:var(--ctx)"></i>Valle (11–16 h)</span><span><i class="sw" style="background:var(--s1)"></i>Punta mañana (7–9 h)</span><span><i class="sw" style="background:var(--s2)"></i>Punta tarde (18–20 h)</span></div>
 <div id="linsent"></div>
 </details>
-</div>
-
-<div class="card">
-<h2>Tramos más lentos en hora punta</h2>
-<p class="note">Tramos entre dos paraderos consecutivos, usados por al menos 2 recorridos; el más lento de cada calle y comuna. Velocidad mediana de los buses en movimiento (km/h).</p>
-<div id="tramos"></div>
 </div>
 
 <footer id="foot"></footer>
@@ -228,7 +229,10 @@ document.getElementById('perfil').append(Plot.plot({width:W('perfil'),height:240
 // operadores
 const ops=V.ahora.map(d=>({n:d.nombre.replace(/^U\d+ - /,''),oc:d.op_com??null,mov:d.mov,flota:d.flota_7d||null})).map(d=>({...d,act:d.oc==null?d.mov:d.oc})).sort((a,b)=>(b.flota??b.act)-(a.flota??a.act));
 const tieneF=ops.some(d=>d.flota);
-document.getElementById('opnote').textContent='Buses en servicio en la última captura sobre la flota de cada unidad de negocio (buses distintos con señal en los últimos 7 días). El porcentaje es la parte de la flota que está en servicio.';
+// fecha y hora de la captura: este gráfico es una foto de un momento, no un promedio
+const tCap=d3.timeParse('%Y-%m-%dT%H:%M')(V.actualizado), fCap=tCap?es.format('%A %e de %B, %H:%M')(tCap):'';
+document.getElementById('opsCaptura').textContent=fCap?`Captura del ${fCap}`:'Última captura';
+document.getElementById('opnote').textContent='Foto de un solo momento, que se renueva con cada captura (cada 10 minutos); no es un promedio. Muestra los buses en servicio sobre la flota de cada unidad de negocio (buses distintos con señal en los últimos 7 días); el porcentaje es la parte de la flota que está en servicio.';
 document.getElementById('ops').append(Plot.plot({width:W('ops'),height:Math.max(260,ops.length*24+40),marginLeft:150,marginRight:44,style:{background:'transparent',fontSize:'12px'},
  y:{domain:ops.map(d=>d.n),label:null},x:{grid:true,label:'buses',tickFormat:fmt},
  marks:[tieneF?Plot.barX(ops,{y:'n',x:'flota',fill:C.ctx,fillOpacity:0.35,insetTop:1,insetBottom:1}):null,
