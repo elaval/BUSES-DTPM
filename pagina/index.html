@@ -4,8 +4,8 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Monitor de Flota DTPM</title>
-<script src="https://cdn.jsdelivr.net/npm/d3@7"></script>
-<script src="https://cdn.jsdelivr.net/npm/@observablehq/plot@0.6"></script>
+<script src="https://cdn.jsdelivr.net/npm/d3@7.9.0/dist/d3.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@observablehq/plot@0.6.17/dist/plot.umd.min.js"></script>
 <style>
 :root{color-scheme:light;--bg:#f9f9f7;--surface:#fcfcfb;--ink:#0b0b0b;--ink2:#52514e;--muted:#898781;--grid:#e1e0d9;--border:rgba(11,11,11,.10);
 --s1:#2a78d6;--s2:#eb6834;--s3:#1baf7a;--ctx:#b4b2a9}
@@ -56,6 +56,12 @@ footer{color:var(--muted);font-size:12px;margin-top:24px}
 #lmpanel button:not(.cur):hover,#lmpanel button:not(.cur):focus-visible{border-color:var(--s2);color:var(--s2)}
 #linmapa svg .zoomable path,#linmapa svg .zoomable line{vector-effect:non-scaling-stroke}
 figure{margin:0}
+.carga{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin:0 0 12px;font-size:13px;color:var(--ink2)}
+.carga[hidden]{display:none}
+.carga progress{flex:1;min-width:160px;max-width:320px;height:6px;accent-color:var(--s1)}
+.spin{width:14px;height:14px;border:2px solid var(--grid);border-top-color:var(--s1);border-radius:50%;animation:girar .8s linear infinite}
+@keyframes girar{to{transform:rotate(360deg)}}
+@media (prefers-reduced-motion:reduce){.spin{animation:none}}
 </style>
 </head>
 <body>
@@ -133,6 +139,7 @@ figure{margin:0}
 </div>
 <span id="linerr" style="font-size:13px;color:#d03b3b"></span>
 </div>
+<div id="lincarga" class="carga" role="status" aria-live="polite"><span class="spin" aria-hidden="true"></span><span id="lincargatxt">Cargando el análisis por línea…</span><progress id="lincargabar" max="100"></progress></div>
 <div id="linhead"></div>
 <div class="kpis" id="linkpis"></div>
 <h2 style="font-size:15px">Mapa del recorrido</h2>
@@ -174,11 +181,19 @@ figure{margin:0}
 const fmt=d3.format(",d"), es=d3.timeFormatLocale({dateTime:"%A, %e de %B de %Y, %X",date:"%d/%m/%Y",time:"%H:%M:%S",periods:["AM","PM"],days:["domingo","lunes","martes","miércoles","jueves","viernes","sábado"],shortDays:["dom","lun","mar","mié","jue","vie","sáb"],months:["enero","febrero","marzo","abril","mayo","junio","julio","agosto","septiembre","octubre","noviembre","diciembre"],shortMonths:["ene","feb","mar","abr","may","jun","jul","ago","sep","oct","nov","dic"]});
 const css=n=>getComputedStyle(document.documentElement).getPropertyValue(n).trim();
 const W=el=>Math.max(300,document.getElementById(el).clientWidth);
-async function cargar(n){
+async function cargar(n,onp){
  if(window.DATOS&&window.DATOS[n]) return window.DATOS[n];
  const r=await fetch(n+'.json',{cache:'no-store'});
  if(!r.ok) throw new Error(`${n}.json respondió HTTP ${r.status}`);
- const t=await r.text();
+ let t;
+ if(onp&&r.body&&window.TextDecoder){
+  // con compresión (gzip/br) el largo del encabezado no corresponde a los bytes recibidos: solo se informa lo descargado
+  const tot=r.headers.get('content-encoding')?0:(+r.headers.get('content-length')||0);
+  const rd=r.body.getReader(), dec=new TextDecoder(), partes=[]; let rec=0;
+  onp(0,tot);
+  for(;;){const {done,value}=await rd.read(); if(done) break; partes.push(dec.decode(value,{stream:true})); rec+=value.length; onp(rec,tot);}
+  partes.push(dec.decode()); t=partes.join('');
+ } else t=await r.text();
  try{return JSON.parse(t)}catch(e){throw new Error(`${n}.json no se encontró (el servidor devolvió una página en vez de datos)`)}
 }
 Promise.all([cargar('data_vivo'),cargar('data_estatico')]).then(([V,S])=>{
@@ -267,14 +282,24 @@ document.getElementById('tramos').innerHTML='<table><thead><tr><th>Tramo</th><th
 document.getElementById('foot').innerHTML=`Fuente: API de posiciones del DTPM, capturada por el repo <a href="https://github.com/elaval/BUSES-DTPM" style="color:inherit">elaval/BUSES-DTPM</a>. Recorridos y paraderos: GTFS oficial del DTPM (julio 2026). Las secciones de flota se actualizan con cada refresco de esta página; el análisis por tramo corresponde a ${S.periodo}.`;
 
 // ===== análisis por línea =====
-cargar('lineas').catch(e=>{document.getElementById('linerr').textContent='No se pudo cargar el análisis por línea: '+e.message;throw e}).then(D=>{
+const linCarga=document.getElementById('lincarga'), linTxt=document.getElementById('lincargatxt'), linBar=document.getElementById('lincargabar');
+const mb=b=>(b/1e6).toLocaleString('es-CL',{minimumFractionDigits:1,maximumFractionDigits:1});
+const progLineas=(rec,tot)=>{
+ if(tot){linBar.value=Math.min(100,rec/tot*100); linTxt.textContent=`Cargando el análisis por línea… ${mb(rec)} de ${mb(tot)} MB`;}
+ else{linBar.removeAttribute('value'); linTxt.textContent=rec?`Cargando el análisis por línea… ${mb(rec)} MB descargados`:'Cargando el análisis por línea…';}
+};
+const cargarLineas=()=>cargar('lineas',progLineas).catch(()=>{linTxt.textContent='La descarga falló; reintentando…';return new Promise(r=>setTimeout(r,3000)).then(()=>cargar('lineas',progLineas))});
+cargarLineas().catch(e=>{linCarga.hidden=true;document.getElementById('linerr').innerHTML='No se pudo cargar el análisis por línea ('+e.message+'). <a href="" onclick="location.reload();return false">Recargar la página</a>';throw e}).then(D=>{
+ linTxt.textContent='Preparando el recorrido…';
+ linCarga.hidden=true;
  const LN=D.lineas, RED=D.red.map(([la,lo,n,rs])=>({la,lo,n,rs}));
  let lmS=null, lmP='pk';
  const ids=Object.keys(LN).sort((a,b)=>a.localeCompare(b,'es',{numeric:true}));
  const med=a=>{const v=a.filter(x=>x!=null).sort((x,y)=>x-y);return v.length?v[Math.floor(v.length/2)]:null};
  const cc=n=>{const [a,b='']=n.split(' / ');const x=b.replace('esq. ','').trim();return /^parada/i.test(a)?['',x]:[a.trim().replace(/^(Avenida|Avda\.?|Av)\s+/,'Av. '),x]};
  const nomTramo=(n1,n2)=>{const [c1,x1]=cc(n1),[c2,x2]=cc(n2);const c=c1||c2;return c?`${c}, entre ${x1||n1} y ${x2||n2}`:`entre ${x1} y ${x2}`};
- function show(id){
+ function show(id){try{show0(id)}catch(e){document.getElementById('linerr').textContent='Error al mostrar el recorrido '+id+': '+e.message;console.error(e)}}
+ function show0(id){
   const L=LN[id]; const err=document.getElementById('linerr');
   if(!L){err.textContent=id?'No hay datos para ese recorrido':'';return} err.textContent='';
   if(location.hash!=='#linea-'+id) history.replaceState(null,'','#linea-'+id);
