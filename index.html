@@ -1,0 +1,602 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Monitor de Flota DTPM</title>
+<script src="https://cdn.jsdelivr.net/npm/d3@7.9.0/dist/d3.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@observablehq/plot@0.6.17/dist/plot.umd.min.js"></script>
+<style>
+:root{color-scheme:light;--bg:#f9f9f7;--surface:#fcfcfb;--ink:#0b0b0b;--ink2:#52514e;--muted:#898781;--grid:#e1e0d9;--border:rgba(11,11,11,.10);
+--s1:#2a78d6;--s2:#eb6834;--s3:#1baf7a;--ctx:#b4b2a9}
+@media (prefers-color-scheme:dark){:root{color-scheme:dark;--bg:#0d0d0d;--surface:#1a1a19;--ink:#f0efec;--ink2:#c3c2b7;--muted:#898781;--grid:#2c2c2a;--border:rgba(255,255,255,.10);--s1:#3987e5;--s2:#d95926;--s3:#199e70;--ctx:#5f5e5a}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.5 system-ui,-apple-system,"Segoe UI",sans-serif;font-variant-numeric:tabular-nums}
+main{max-width:1100px;margin:0 auto;padding:28px 20px 48px}
+h1{font-size:24px;font-weight:600;margin:0 0 4px}
+h2{font-size:17px;font-weight:600;margin:0 0 4px}
+.sub{color:var(--ink2);margin:0 0 20px}
+.kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:12px;margin-bottom:20px}
+.kpi{background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:14px 16px}
+.kpi .l{font-size:13px;color:var(--ink2)} .kpi .v{font-size:28px;font-weight:600;margin-top:2px} .kpi .d{font-size:12px;color:var(--muted)}
+.card{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:18px 18px 12px;margin-bottom:16px}
+.card p.note{color:var(--ink2);font-size:13px;margin:0 0 10px}
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:16px} @media (max-width:820px){.grid2{grid-template-columns:1fr}}
+.legend{display:flex;flex-wrap:wrap;gap:14px;font-size:12px;color:var(--ink2);margin:4px 0 6px}
+.legend span{display:inline-flex;align-items:center;gap:5px} .sw{width:10px;height:10px;border-radius:2px;display:inline-block}
+.tabs{display:flex;gap:6px;margin:6px 0 8px} .tabs button{font:inherit;font-size:13px;padding:5px 12px;border-radius:8px;border:1px solid var(--border);background:transparent;color:var(--ink);cursor:pointer}
+.tabs button.on{border-color:var(--ink2);font-weight:600}
+table{width:100%;border-collapse:collapse;font-size:13px} th,td{text-align:left;padding:7px 8px;border-bottom:1px solid var(--border)} th{color:var(--ink2);font-weight:500} td.n{text-align:right}
+footer{color:var(--muted);font-size:12px;margin-top:24px}
+.combo{position:relative}
+.combo input{font:inherit;padding:6px 10px;border-radius:8px;border:1px solid var(--border);background:var(--surface);color:var(--ink);width:280px}
+.combo ul{position:absolute;z-index:20;left:0;top:calc(100% + 4px);width:380px;max-height:320px;overflow:auto;margin:0;padding:4px;list-style:none;background:var(--surface);border:1px solid var(--border);border-radius:8px;box-shadow:0 6px 20px rgba(0,0,0,.12)}
+.combo li{padding:6px 8px;border-radius:6px;cursor:pointer;font-size:13px}
+.combo li b{display:inline-block;min-width:52px}
+.combo li[aria-selected="true"],.combo li:hover{background:var(--bg)}
+.combo li span{color:var(--ink2)}
+.defs summary{cursor:pointer;list-style:revert}
+.deftab td{vertical-align:top;font-size:13px} .deftab td:first-child{white-space:nowrap}
+.deftab .sw{vertical-align:-1px}
+#lmpanel{position:absolute;z-index:15;max-width:300px;background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:8px 10px;font-size:12px;box-shadow:0 6px 20px rgba(0,0,0,.15);pointer-events:auto}
+#lmpanel .t{font-weight:600;margin-bottom:4px}
+.vres{margin:10px 0 4px;max-width:780px}.vres .vt{margin:0 0 4px;font-weight:600;font-size:13px}.vres .vt span{font-weight:400;color:var(--ink2)}
+.vrow{display:grid;grid-template-columns:minmax(130px,190px) 1fr minmax(76px,auto);grid-template-areas:"l b v";gap:10px;align-items:center;margin:3px 0;font-size:13px}
+.vrow .vl{grid-area:l}.vrow .vv{grid-area:v}.vrow .vb{grid-area:b;height:14px}
+@media (max-width:560px){.vrow{grid-template-columns:1fr auto;grid-template-areas:"l v" "b b";row-gap:3px;margin:7px 0}}.vrow .vb i{display:block;height:100%;background:var(--s1);border-radius:3px}
+.prow{display:grid;grid-template-columns:1fr minmax(60px,170px) minmax(56px,auto);grid-template-areas:"l b v";gap:10px;align-items:center;margin:6px 0;font-size:13px}
+.prow .pl{grid-area:l}.prow .pl small{color:var(--ink2);font-size:12px}.prow .vb{grid-area:b;height:12px}.prow .vb i{display:block;height:100%;background:var(--s2);border-radius:3px}
+.prow .vv{grid-area:v;font-weight:600;font-variant-numeric:tabular-nums;white-space:nowrap;text-align:right}
+@media (max-width:560px){.prow{grid-template-columns:1fr auto;grid-template-areas:"l v" "b b";row-gap:3px}}
+.vrow .vv{font-weight:600;font-variant-numeric:tabular-nums;white-space:nowrap}.vres .note{margin:4px 0 0}
+#lmbarra{font-size:12.5px;line-height:1.4;min-height:2.9em;box-sizing:border-box;padding:5px 10px;margin:0 0 6px;border:1px solid var(--border);border-radius:8px;background:var(--surface);color:var(--ink2);display:flex;align-items:center}
+#lmbarra b,#lmbarra .on{color:var(--ink)} #lmbarra .on{font-weight:600} #lmpanel .r{display:flex;flex-wrap:wrap;gap:4px;margin-top:4px}
+#lmpanel button{font:inherit;font-size:12px;padding:2px 7px;border-radius:6px;border:1px solid var(--border);background:var(--bg);color:var(--ink);cursor:pointer}
+#lmpanel button.cur{border-color:var(--s1);color:var(--s1);font-weight:600}
+#lmpanel button:not(.cur):hover,#lmpanel button:not(.cur):focus-visible{border-color:var(--s2);color:var(--s2)}
+#linmapa svg .zoomable path,#linmapa svg .zoomable line{vector-effect:non-scaling-stroke}
+figure{margin:0}
+.carga{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin:0 0 12px;font-size:13px;color:var(--ink2)}
+.carga[hidden]{display:none}
+.carga progress{flex:1;min-width:160px;max-width:320px;height:6px;accent-color:var(--s1)}
+.spin{width:14px;height:14px;border:2px solid var(--grid);border-top-color:var(--s1);border-radius:50%;animation:girar .8s linear infinite}
+@keyframes girar{to{transform:rotate(360deg)}}
+@media (prefers-reduced-motion:reduce){.spin{animation:none}}
+</style>
+</head>
+<body>
+<main>
+<h1>Monitor de Flota DTPM Santiago</h1>
+<p class="sub" id="sub">Cargando datos…</p>
+
+<div class="kpis" id="kpis"></div>
+
+<details class="card defs">
+<summary><h2 style="display:inline">Cómo se clasifica cada bus</h2></summary>
+<p class="note" style="margin-top:8px">En cada captura (cada 10 minutos) la API del DTPM entrega, por bus, sus últimas 4 transmisiones de GPS con posición y velocidad, y el código del servicio que tiene asignado. Las cifras de buses de esta página cuentan solo a los <b>buses en servicio</b>:</p>
+<table class="deftab">
+<tr><th>Categoría</th><th>Criterio</th><th>Qué significa</th></tr>
+<tr><td><b>En servicio</b></td><td>Tiene un recorrido asignado, GPS de hace 10 minutos o menos y <b>se movió en los últimos ~20 minutos</b>: en la captura actual o en alguna de las 2 anteriores iba a más de 5 km/h o se desplazó más de 150 m.</td><td>Bus atendiendo un recorrido. Es la cifra que usan los indicadores y gráficos.</td></tr>
+<tr><td style="padding-left:18px"><i class="sw" style="background:var(--s1)"></i> En movimiento</td><td>En servicio y con velocidad máxima de las 4 transmisiones mayor a 5 km/h.</td><td>Bus circulando.</td></tr>
+<tr><td style="padding-left:18px"><i class="sw" style="background:var(--s3)"></i> Detenido en ruta</td><td>En servicio, pero en esta captura a 5 km/h o menos.</td><td>Bus en un paradero, un semáforo o un taco.</td></tr>
+</table>
+<p class="note" style="margin-top:10px">No se cuentan como en servicio:</p>
+<table class="deftab">
+<tr><th>Situación</th><th>Criterio</th><th>Qué suele significar</th></tr>
+<tr><td><b>Encendido sin moverse</b></td><td>GPS al día, pero sin moverse en los últimos ~20 minutos.</td><td>Bus estacionado en un terminal o depósito con el equipo encendido (por ejemplo, el encendido masivo de la flota cerca de las 4:30).</td></tr>
+<tr><td><b>Sin servicio comercial</b></td><td>El código de servicio termina en "TS" (uno por unidad de negocio: T5TS, T19TS…).</td><td>Bus sin recorrido asignado: traslados entre el depósito y su recorrido, o fuera de servicio. Los buses pasan de TS a un recorrido al empezar el servicio y vuelven a TS al terminarlo. Es nuestra interpretación: el DTPM no publica una definición.</td></tr>
+<tr><td><b>Sin señal reciente</b></td><td>Última transmisión de hace más de 10 y hasta 190 minutos.</td><td>Bus que terminó su servicio y apagó el equipo, o con una falla de GPS o de comunicación.</td></tr>
+<tr><td><b>Fuera de operación</b></td><td>Última transmisión de hace más de 190 minutos.</td><td>La API también lista buses que no transmiten hace días. No se guardan.</td></tr>
+</table>
+<p class="note" style="margin-top:10px"><b>Flota (7 días)</b> = buses distintos (patentes) que transmitieron al menos una vez en los últimos 7 días: referencia del tamaño de la flota. "En servicio" se calcula desde el 15-nov-2026, cuando empezaron las capturas cada 10 minutos; para períodos anteriores se usan aproximaciones, indicadas en cada gráfico.<br>
+<b>Velocidad por tramo</b> (mapas y análisis por línea): cada posición GPS se ubica sobre el trazado oficial de su recorrido y se asigna al tramo entre los dos paraderos que la rodean; la velocidad del tramo es la mediana del promedio de las 4 transmisiones de los buses <i>en movimiento</i>. Es la velocidad de circulación: no incluye el tiempo detenido en paraderos (no es la velocidad comercial) y sí algo del frenado y la partida. <b>Punta</b> = 7–9 h y 18–20 h; <b>valle</b> = 11–16 h; solo días hábiles.</p>
+</details>
+
+<div class="card">
+<h2>Últimos 7 días</h2>
+<p class="note"><b>Buses en servicio</b> en cada captura: con un recorrido asignado y que se movieron en los últimos ~20 minutos (incluye a los detenidos en un paradero o semáforo). La línea punteada es la flota de referencia: buses distintos que transmitieron al menos una vez en los últimos 7 días. Antes del 15 de noviembre solo hay unas pocas capturas al día y no se puede calcular quién está en servicio: los círculos muestran los buses en movimiento en esas capturas, como referencia aproximada. Si faltan capturas por un rato (por ejemplo, porque la fuente de datos no respondió), ese tramo se completa con una línea discontinua interpolada.</p>
+<div class="legend"><span><i class="sw" style="background:var(--s1)"></i>Buses en servicio</span><span><i class="sw" style="background:transparent;border:1.5px solid var(--s1);border-radius:50%"></i>En movimiento (capturas antiguas)</span><span><i class="sw" style="background:transparent;border-top:2px dashed var(--muted);height:0;width:14px;border-radius:0"></i>Flota con señal en 7 días</span><span id="legrell" hidden><i class="sw" style="background:transparent;border-top:2px dashed var(--s1);height:0;width:14px;border-radius:0"></i>Sin capturas (interpolado)</span></div>
+<div id="serie"></div>
+</div>
+
+<div class="grid2">
+<div class="card">
+<h2>Día hábil típico</h2>
+<p class="note" id="perfilnota">Buses en servicio por hora en un día hábil (mediana de los días hábiles de los últimos 7 días).</p>
+<div id="perfil"></div>
+</div>
+<div class="card">
+<h2>Buses en servicio por operador</h2>
+<p id="opsCaptura" style="margin:-4px 0 4px;font-size:13px;font-weight:600"></p>
+<p class="note" id="opnote"></p>
+<div class="legend"><span><i class="sw" style="background:var(--s1)"></i>En servicio</span><span><i class="sw" style="background:var(--ctx);opacity:.45"></i>Flota (7 días)</span></div>
+<div id="ops"></div>
+</div>
+</div>
+
+<div class="card">
+<h2>Velocidad de buses por tramo · toda la red</h2>
+<p class="note" id="mapnote"></p>
+<div class="tabs"><button id="tp" class="on">Velocidad en punta</button><button id="tc">Caída punta vs valle</button></div>
+<div id="leg"></div>
+<div id="mapa"></div>
+</div>
+
+<div class="card">
+<h2>Tramos más lentos de la red en hora punta</h2>
+<p class="note">Considera todos los recorridos de buses, no una línea en particular. Tramos entre dos paraderos consecutivos usados por al menos 2 recorridos; se muestra el más lento de cada calle y comuna. Velocidad mediana de los buses en movimiento (km/h).</p>
+<div id="tramos"></div>
+</div>
+
+<div class="card" id="linea-card">
+<h2>Análisis por línea</h2>
+<p class="note">Elige un recorrido para ver cuántos buses opera por hora y cómo cambia su velocidad a lo largo del trazado (días hábiles, may–nov 2026).</p>
+<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin:4px 0 12px">
+<label for="lin" style="font-size:13px;color:var(--ink2)">Recorrido</label>
+<div class="combo">
+<input id="lin" value="503" autocomplete="off" role="combobox" aria-expanded="false" aria-controls="linlist" placeholder="Escribe número o destino…">
+<ul id="linlist" role="listbox" hidden></ul>
+</div>
+<span id="linerr" style="font-size:13px;color:#d03b3b"></span>
+</div>
+<div id="lincarga" class="carga" role="status" aria-live="polite"><span class="spin" aria-hidden="true"></span><span id="lincargatxt">Cargando el análisis por línea…</span><progress id="lincargabar" max="100"></progress></div>
+<div id="linhead"></div>
+<div class="kpis" id="linkpis"></div>
+<h2 style="font-size:15px">Mapa del recorrido</h2>
+<p class="note">Tramos del recorrido coloreados según la velocidad de esta línea (en blanco, sin datos suficientes). Puntos oscuros: paraderos del recorrido; en gris, el resto de la red. Pasa el cursor sobre el recorrido para ver la velocidad de cada tramo en la barra sobre el mapa, y sobre cualquier paradero para ver qué recorridos lo atienden y sus trazados; haz clic para fijarlo, pasa el cursor sobre cada número para destacar ese recorrido y haz clic para elegirlo.</p>
+<div style="display:flex;gap:16px;flex-wrap:wrap;align-items:center">
+<div class="tabs" id="lmsent"></div>
+<div class="tabs" id="lmper"><button data-p="pk" class="on">Peor punta</button><button data-p="am">Punta mañana</button><button data-p="pm">Punta tarde</button><button data-p="va">Valle</button></div>
+</div>
+<div id="lmleg"></div>
+<div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;margin:2px 0 6px">
+<div class="tabs" style="margin:0"><button id="lmzin" aria-label="Acercar">+</button><button id="lmzout" aria-label="Alejar">−</button><button id="lmzred">Ver toda la red</button><button id="lmzrec">Volver al recorrido</button></div>
+<span style="font-size:12px;color:var(--muted)">Arrastra para mover · Ctrl/⌘ + rueda (o pellizca) para hacer zoom</span>
+</div>
+<div id="lmbarra" aria-live="polite"></div>
+<div id="linmapa" style="position:relative;overflow:hidden;border-radius:8px;cursor:grab"></div>
+<h2 style="font-size:15px">Buses en servicio por hora</h2>
+<p class="note">Mediana por hora de un día hábil (may–nov 2026). Aproximación: buses del recorrido en movimiento o avanzando lento en el momento de cada captura; con solo ~4 capturas al día en ese período no se puede aplicar el criterio exacto de "en servicio", que subestima levemente a los buses completamente detenidos. Se recalculará con las capturas cada 10 minutos.</p>
+<div id="linbuses"></div>
+<h2 style="font-size:15px;margin-top:18px">Tiempo de viaje</h2>
+<p class="note" id="linviajenota"></p>
+<div id="linviajeres"></div>
+<details id="linviajedet" style="margin-top:8px"><summary style="cursor:pointer;font-size:13px;color:var(--ink2)">Ver detalle por hora (mediana, percentil 90 y tiempo programado)</summary>
+<p class="note">Cada barra es una hora de salida. Solo se muestran horas con al menos 5 viajes medidos.</p>
+<div class="legend"><span><i class="sw" style="background:var(--s1)"></i>La mitad de los viajes tarda menos (mediana)</span><span><i class="sw" style="background:transparent;border-left:2px solid var(--ink2);border-radius:0;width:2px"></i>Uno de cada diez tarda más (percentil 90)</span><span><i class="sw" style="background:var(--s2);height:3px;border-radius:0"></i>Programado (GTFS)</span></div>
+<div id="linviaje"></div>
+</details>
+<h2 style="font-size:15px;margin-top:18px">Dónde se pierde tiempo en punta</h2>
+<p class="note" id="linperdidanota">Sectores de ~1 km donde la hora punta suma más minutos respecto del valle (11–16 h). Para cada sentido se usa la punta, mañana o tarde, en que más tiempo se pierde. Se calcula con la velocidad de circulación (sin contar detenciones), así que el tiempo real perdido puede ser algo mayor.</p>
+<div id="linperdida"></div>
+<details id="linsentdet" style="margin-top:8px"><summary style="cursor:pointer;font-size:13px;color:var(--ink2)">Ver velocidad tramo a tramo (punta mañana, punta tarde y valle)</summary>
+<p class="note">Cada punto es un tramo entre dos paraderos consecutivos, ubicado en su punto medio. Curvas suavizadas con la mediana de 3 tramos; al pasar el cursor se ve el valor de cada tramo. Círculos huecos y trazo claro: valor aproximado, porque el tramo aún tiene pocos registros y se calcula junto con sus vecinos; se reemplaza por su valor propio a medida que llegan datos.</p><div class="legend"><span><i class="sw" style="background:var(--ctx)"></i>Valle (11–16 h)</span><span><i class="sw" style="background:var(--s1)"></i>Punta mañana (7–9 h)</span><span><i class="sw" style="background:var(--s2)"></i>Punta tarde (18–20 h)</span></div>
+<div id="linsent"></div>
+</details>
+</div>
+
+<footer id="foot"></footer>
+</main>
+<script>
+const fmt=d3.format(",d"), es=d3.timeFormatLocale({dateTime:"%A, %e de %B de %Y, %X",date:"%d/%m/%Y",time:"%H:%M:%S",periods:["AM","PM"],days:["domingo","lunes","martes","miércoles","jueves","viernes","sábado"],shortDays:["dom","lun","mar","mié","jue","vie","sáb"],months:["enero","febrero","marzo","abril","mayo","junio","julio","agosto","septiembre","octubre","noviembre","diciembre"],shortMonths:["ene","feb","mar","abr","may","jun","jul","ago","sep","oct","nov","dic"]});
+const css=n=>getComputedStyle(document.documentElement).getPropertyValue(n).trim();
+const W=el=>Math.max(300,document.getElementById(el).clientWidth);
+async function cargar(n,onp){
+ if(window.DATOS&&window.DATOS[n]) return window.DATOS[n];
+ const r=await fetch(n+'.json',{cache:'no-store'});
+ if(!r.ok) throw new Error(`${n}.json respondió HTTP ${r.status}`);
+ let t;
+ if(onp&&r.body&&window.TextDecoder){
+  // con compresión (gzip/br) el largo del encabezado no corresponde a los bytes recibidos: solo se informa lo descargado
+  const tot=r.headers.get('content-encoding')?0:(+r.headers.get('content-length')||0);
+  const rd=r.body.getReader(), dec=new TextDecoder(), partes=[]; let rec=0;
+  onp(0,tot);
+  for(;;){const {done,value}=await rd.read(); if(done) break; partes.push(dec.decode(value,{stream:true})); rec+=value.length; onp(rec,tot);}
+  partes.push(dec.decode()); t=partes.join('');
+ } else t=await r.text();
+ try{return JSON.parse(t)}catch(e){throw new Error(`${n}.json no se encontró (el servidor devolvió una página en vez de datos)`)}
+}
+Promise.all([cargar('data_vivo'),cargar('data_estatico')]).then(([V,S])=>{
+const C={surf:css('--surface'),ink2:css('--ink2'),s1:css('--s1'),s2:css('--s2'),s3:css('--s3'),ctx:css('--ctx'),grid:css('--grid'),muted:css('--muted')};
+const parse=d3.timeParse('%Y-%m-%dT%H:%M'); const act=parse(V.actualizado);
+document.getElementById('sub').textContent=`Transporte público metropolitano · última captura: ${es.format('%e de %B, %H:%M')(act)} (hora de Chile)`;
+const tot=d3.sum(V.ahora,d=>d.total), mov=d3.sum(V.ahora,d=>d.mov), sin=V.ahora.some(d=>d.sin!=null)?d3.sum(V.ahora,d=>d.sin||0):null;
+const hayOp=V.ahora.some(d=>d.op_com!=null);
+const enS=hayOp?d3.sum(V.ahora,d=>d.op_com||0):null, tsN=hayOp?d3.sum(V.ahora,d=>d.op_ts||0):null;
+const ult=V.serie.at(-1), enMov=ult&&ult.length>4?ult[6]:null;
+const k=[['Buses en servicio',enS==null?'—':fmt(enS),enMov==null?'operando con recorrido asignado':`${fmt(enMov)} en movimiento · ${fmt(enS-enMov)} detenidos en ruta`],['Flota (7 días)',V.flota_7d?fmt(V.flota_7d):'—','buses distintos con señal'],['De la flota en servicio',enS!=null&&V.flota_7d?Math.round(enS/V.flota_7d*100)+' %':'—','buses en servicio / flota'],['Operadores',V.ahora.length,'unidades de negocio']];
+document.getElementById('kpis').innerHTML=k.map(([l,v,d])=>`<div class="kpi"><div class="l">${l}</div><div class="v">${v}</div><div class="d">${d}</div></div>`).join('');
+// serie
+const ser=V.serie.map(([t,a,b,c,oc,ot,ocm])=>({t:parse(t),total:a,mov:b,sin:c,oc:oc??null,ot:ot??null,ocm:ocm??null}));
+const dens=ser.filter(d=>d.oc!=null);
+// Capturas faltantes (p. ej., la API del DTPM no respondió): los huecos de hasta 3 h se
+// completan con una línea discontinua interpolada; los más largos quedan en blanco.
+const HUECO=25*60000, RELLENO_MAX=3*3600000, rell=[];
+let g=0;dens.forEach((d,i)=>{if(i>0){const a=dens[i-1],dt=d.t-a.t;if(dt>HUECO){g++;
+  if(dt<=RELLENO_MAX){const n=Math.round(dt/600000);for(let j=0;j<=n;j++)rell.push({t:new Date(+a.t+dt*j/n),oc:Math.round(a.oc+(d.oc-a.oc)*j/n),h:g,ini:a.t,fin:d.t,borde:j===0||j===n})}}}d.g=g});
+const tipSer=[...dens,...rell.filter(d=>!d.borde)].sort((a,b)=>a.t-b.t);
+if(rell.length)document.getElementById('legrell').hidden=false;
+// Círculos solo para las capturas antiguas (antes de las capturas cada 10 min);
+// después, una captura sin dato se omite y la línea la salta.
+const t0=dens.length?dens[0].t:null, rala=ser.filter(d=>d.oc==null&&(t0==null||d.t<t0));
+const F=V.flota_7d;
+document.getElementById('serie').append(Plot.plot({width:W('serie'),height:280,marginLeft:48,marginRight:12,style:{background:'transparent',fontSize:'12px'},
+ x:{type:'time',label:null,ticks:d3.timeDay.every(1),tickFormat:es.format('%a %e')},y:{grid:true,label:'buses',tickFormat:fmt,domain:[0,F?F*1.08:undefined]},
+ marks:[
+  F?Plot.ruleY([F],{stroke:C.muted,strokeDasharray:'4,3'}):null,
+  F?Plot.text([F],{x:ser.at(-1).t,y:F,text:d=>`Flota con señal en los últimos 7 días: ${fmt(d)}`,dy:-7,textAnchor:'end',fill:C.muted}):null,
+  Plot.areaY(dens,{x:'t',y:'oc',z:'g',fill:C.s1,fillOpacity:0.15}),
+  Plot.areaY(rell,{x:'t',y:'oc',z:'h',fill:C.s1,fillOpacity:0.15}),
+  Plot.lineY(dens,{x:'t',y:'oc',z:'g',stroke:C.s1,strokeWidth:2}),
+  Plot.lineY(rell,{x:'t',y:'oc',z:'h',stroke:C.s1,strokeWidth:1.5,strokeDasharray:'3,3',strokeOpacity:0.8}),
+  Plot.dot(rala,{x:'t',y:'mov',stroke:C.s1,fill:'none',r:2.8}),
+  Plot.tip(tipSer,Plot.pointerX({x:'t',y:'oc',title:d=>d.ini?`${es.format('%a %e %b, %H:%M')(d.t)}\nSin capturas entre las ${es.format('%H:%M')(d.ini)} y las ${es.format('%H:%M')(d.fin)}\nValor interpolado: ~${fmt(d.oc)}`:`${es.format('%a %e %b, %H:%M')(d.t)}\nBuses en servicio: ${fmt(d.oc)}\n(${Math.round(d.oc/F*100)} % de la flota)`})),
+  Plot.tip(rala,Plot.pointer({x:'t',y:'mov',title:d=>`${es.format('%a %e %b, %H:%M')(d.t)}\nEn movimiento: ${fmt(d.mov)}\n(captura antigua: no permite calcular buses en servicio)`}))
+ ].filter(Boolean)}));
+// perfil
+// buses en servicio por hora, mediana de los días hábiles de los últimos 7 días
+const pf=V.perfil.map(d=>({h:d.h,v:d.servicio})).filter(d=>d.v!=null);
+if(V.perfil_dias) document.getElementById('perfilnota').textContent=`Buses en servicio por hora en un día hábil: mediana de los ${V.perfil_dias} días hábiles de los últimos 7 días. Es la misma medida del gráfico de los últimos 7 días.`;
+document.getElementById('perfil').append(Plot.plot({width:W('perfil'),height:240,marginLeft:48,style:{background:'transparent',fontSize:'12px'},
+ x:{label:'hora',domain:[0,23],ticks:[0,3,6,9,12,15,18,21]},y:{grid:true,label:'buses en servicio',tickFormat:fmt,domain:[0,Math.max(1000,d3.max(pf,d=>d.v)||0)*1.08]},
+ marks:[Plot.areaY(pf,{x:'h',y:'v',fill:C.s1,fillOpacity:0.15}),Plot.lineY(pf,{x:'h',y:'v',stroke:C.s1,strokeWidth:2}),Plot.dot(pf,{x:'h',y:'v',fill:C.s1,r:3}),
+  Plot.tip(pf,Plot.pointer({x:'h',y:'v',title:d=>`${d.h}:00–${d.h}:59\nBuses en servicio: ${fmt(d.v)}`}))]}));
+// operadores
+const ops=V.ahora.map(d=>({n:d.nombre.replace(/^U\d+ - /,''),oc:d.op_com??null,mov:d.mov,flota:d.flota_7d||null})).map(d=>({...d,act:d.oc==null?d.mov:d.oc})).sort((a,b)=>(b.flota??b.act)-(a.flota??a.act));
+const tieneF=ops.some(d=>d.flota);
+// fecha y hora de la captura: este gráfico es una foto de un momento, no un promedio
+const tCap=d3.timeParse('%Y-%m-%dT%H:%M')(V.actualizado), fCap=tCap?es.format('%A %e de %B, %H:%M')(tCap):'';
+document.getElementById('opsCaptura').textContent=fCap?`Captura del ${fCap}`:'Última captura';
+document.getElementById('opnote').textContent='Foto de un solo momento, que se renueva con cada captura (cada 10 minutos); no es un promedio. Muestra los buses en servicio sobre la flota de cada unidad de negocio (buses distintos con señal en los últimos 7 días); el porcentaje es la parte de la flota que está en servicio.';
+document.getElementById('ops').append(Plot.plot({width:W('ops'),height:Math.max(260,ops.length*24+40),marginLeft:150,marginRight:44,style:{background:'transparent',fontSize:'12px'},
+ y:{domain:ops.map(d=>d.n),label:null},x:{grid:true,label:'buses',tickFormat:fmt},
+ marks:[tieneF?Plot.barX(ops,{y:'n',x:'flota',fill:C.ctx,fillOpacity:0.35,insetTop:1,insetBottom:1}):null,
+  Plot.barX(ops,{y:'n',x:'act',fill:C.s1,insetTop:1,insetBottom:1}),
+  tieneF?Plot.text(ops,{y:'n',x:'flota',text:d=>d.flota?Math.round(d.act/d.flota*100)+' %':'',dx:4,textAnchor:'start',fill:C.ink2}):null,
+  Plot.tip(ops,Plot.pointerY({y:'n',x:d=>d.flota??d.act,title:d=>`${d.n}\nEn servicio: ${fmt(d.act)}`+(d.flota?`\nFlota 7 días: ${fmt(d.flota)} (${Math.round(d.act/d.flota*100)} % en servicio)`:'')}))].filter(Boolean)}));
+// mapa de tramos
+const T=S.tramos_red.map(([cs,p,v,c,calle,entre,cm,ns])=>({cs,p,v,c,calle,entre,cm,ns,mid:cs[Math.floor(cs.length/2)]}));
+document.getElementById('mapnote').textContent=`${fmt(T.length)} tramos entre paraderos consecutivos con datos suficientes · ${S.periodo}. Velocidad de circulación de los buses en movimiento en cada tramo (no incluye el tiempo detenidos en paraderos). Punta = la peor entre 7–9 h y 18–20 h; valle = 11–16 h.`;
+let modo='p';
+const seq=['#cde2fb','#86b6ef','#3987e5','#1c5cab','#0d366b'];
+function mapa(){
+ const el=document.getElementById('mapa'); el.innerHTML='';
+ const cfg=modo==='p'?{f:d=>d.p,lab:['18 o más','14–18','11–14','8–11','menos de 8'],sc:v=>v>=18?0:v>=14?1:v>=11?2:v>=8?3:4}:{f:d=>d.c,lab:['menos de 5 %','5–15 %','15–30 %','30–45 %','45 % o más'],sc:v=>v<5?0:v<15?1:v<30?2:v<45?3:4};
+ document.getElementById('leg').innerHTML='<div class="legend">'+(modo==='p'?'Km/h en punta (más oscuro = más lento): ':'Cuánto baja la velocidad en punta respecto del valle: ')+cfg.lab.map((l,i)=>`<span><i class="sw" style="background:${seq[i]}"></i>${l}</span>`).join('')+'</div>';
+ const data=T.map((d,i)=>({...d,i,b:cfg.sc(cfg.f(d))})).sort((a,b)=>a.b-b.b);
+ const pts=data.flatMap(d=>d.cs.map(([lo,la])=>({lo,la,i:d.i,b:d.b})));
+ const w=W('mapa');
+ el.append(Plot.plot({width:w,height:Math.round(w*1.0),style:{background:'transparent',fontSize:'11px'},
+  projection:{type:'mercator',domain:{type:'MultiPoint',coordinates:T.map(d=>d.mid)},inset:6},
+  marks:[Plot.geo(S.comunas,{stroke:C.muted,strokeWidth:0.6,strokeOpacity:0.7,fill:'none'}),
+   Plot.text(S.comunas.features,Plot.centroid({text:d=>d.properties.n,fill:C.muted,fontSize:10,stroke:'var(--surface)',strokeWidth:3,paintOrder:'stroke'})),
+   Plot.line(pts,{x:'lo',y:'la',z:'i',stroke:d=>seq[d.b],strokeWidth:d=>d.b>=3?3:2.2,strokeLinecap:'round'}),
+   Plot.tip(data,Plot.pointer({x:d=>d.mid[0],y:d=>d.mid[1],maxRadius:20,title:d=>`${d.calle}\n${d.entre} (${d.cm})\nPunta: ${d.p} km/h · valle: ${d.v} km/h · caída: ${d.c} %\n${d.ns} recorrido${d.ns>1?'s':''}`}))]}));
+}
+document.getElementById('tp').onclick=()=>{modo='p';document.getElementById('tp').classList.add('on');document.getElementById('tc').classList.remove('on');mapa()};
+document.getElementById('tc').onclick=()=>{modo='c';document.getElementById('tc').classList.add('on');document.getElementById('tp').classList.remove('on');mapa()};
+mapa();
+// tabla
+document.getElementById('tramos').innerHTML='<table><thead><tr><th>Tramo</th><th>Comuna</th><th class="n">Punta</th><th class="n">Valle</th><th class="n">Caída</th><th>Peor</th></tr></thead><tbody>'+
+ S.tramos.map(t=>`<tr><td>${t.calle}${t.cruces&&t.cruces!==t.calle?`<br><span style="color:var(--muted);font-size:12px">${t.cruces}</span>`:''}</td><td>${t.comuna}</td><td class="n">${t.punta.toFixed(1)}</td><td class="n">${t.valle.toFixed(1)}</td><td class="n">${t.caida} %</td><td>${t.peor}</td></tr>`).join('')+'</tbody></table>';
+document.getElementById('foot').innerHTML=`Fuente: API de posiciones del DTPM, capturada por el repo <a href="https://github.com/elaval/BUSES-DTPM" style="color:inherit">elaval/BUSES-DTPM</a>. Recorridos y paraderos: GTFS oficial del DTPM (julio 2026). Las secciones de flota se actualizan con cada refresco de esta página; el análisis por tramo corresponde a ${S.periodo}.`;
+
+// ===== análisis por línea =====
+const linCarga=document.getElementById('lincarga'), linTxt=document.getElementById('lincargatxt'), linBar=document.getElementById('lincargabar');
+const mb=b=>(b/1e6).toLocaleString('es-CL',{minimumFractionDigits:1,maximumFractionDigits:1});
+const progLineas=(rec,tot)=>{
+ if(tot){linBar.value=Math.min(100,rec/tot*100); linTxt.textContent=`Cargando el análisis por línea… ${mb(rec)} de ${mb(tot)} MB`;}
+ else{linBar.removeAttribute('value'); linTxt.textContent=rec?`Cargando el análisis por línea… ${mb(rec)} MB descargados`:'Cargando el análisis por línea…';}
+};
+const cargarLineas=()=>cargar('lineas',progLineas).catch(()=>{linTxt.textContent='La descarga falló; reintentando…';return new Promise(r=>setTimeout(r,3000)).then(()=>cargar('lineas',progLineas))});
+cargarLineas().catch(e=>{linCarga.hidden=true;document.getElementById('linerr').innerHTML='No se pudo cargar el análisis por línea ('+e.message+'). <a href="" onclick="location.reload();return false">Recargar la página</a>';throw e}).then(D=>{
+ linTxt.textContent='Preparando el recorrido…';
+ linCarga.hidden=true;
+ const LN=D.lineas, RED=D.red.map(([la,lo,n,rs])=>({la,lo,n,rs}));
+ let lmS=null, lmP='pk';
+ const ids=Object.keys(LN).sort((a,b)=>a.localeCompare(b,'es',{numeric:true}));
+ const med=a=>{const v=a.filter(x=>x!=null).sort((x,y)=>x-y);return v.length?v[Math.floor(v.length/2)]:null};
+ const cc=n=>{const [a,b='']=n.split(' / ');const x=b.replace('esq. ','').trim();return /^parada/i.test(a)?['',x]:[a.trim().replace(/^(Avenida|Avda\.?|Av)\s+/,'Av. '),x]};
+ const nomTramo=(n1,n2)=>{const [c1,x1]=cc(n1),[c2,x2]=cc(n2);const c=c1||c2;return c?`${c}, entre ${x1||n1} y ${x2||n2}`:`entre ${x1} y ${x2}`};
+ function show(id){try{show0(id)}catch(e){document.getElementById('linerr').textContent='Error al mostrar el recorrido '+id+': '+e.message;console.error(e)}}
+ function show0(id){
+  const L=LN[id]; const err=document.getElementById('linerr');
+  if(!L){err.textContent=id?'No hay datos para ese recorrido':'';return} err.textContent='';
+  if(location.hash!=='#linea-'+id) history.replaceState(null,'','#linea-'+id);
+  document.getElementById('linhead').innerHTML=`<p style="margin:0 0 10px"><b>${id}</b> · ${L.nombre} <span style="color:var(--ink2)">· operador: ${L.operador||'—'}</span></p>`;
+  const bh=L.buses_hora, pk=Math.max(bh[7],bh[8],bh[18],bh[19]), vl=Math.round(med(bh.slice(11,16)));
+  const all=Object.values(L.sentidos).flatMap(s=>s.tramos);
+  const pr=(r,i,b)=>((r[5]||0)&b)?null:r[i];   // solo valores propios (no aproximados)
+  const vp=med(all.map(r=>{const a=pr(r,1,1),p=pr(r,2,2);return a==null&&p==null?null:Math.min(a??99,p??99)})), vv=med(all.map(r=>pr(r,3,4)));
+  const km=Object.values(L.sentidos).map(s=>s.paraderos.at(-1)[0]);
+  document.getElementById('linkpis').innerHTML=[['Buses en servicio en punta',pk,'máximo 7–9 h / 18–20 h (aprox.)'],['Buses en servicio en valle',vl,'mediana 11–16 h (aprox.)'],['Velocidad en punta',vp==null?'—':vp.toFixed(1)+' km/h','mediana de tramos, peor punta'],['Velocidad en valle',vv==null?'—':vv.toFixed(1)+' km/h','mediana de tramos'],['Largo aprox.',km.map(k=>k.toFixed(1)).join(' / ')+' km','por sentido']].map(([l,v,d])=>`<div class="kpi"><div class="l">${l}</div><div class="v" style="font-size:22px">${v}</div><div class="d">${d}</div></div>`).join('');
+  lmS=Object.keys(L.sentidos)[0];
+  document.getElementById('lmsent').innerHTML=Object.entries(L.sentidos).map(([d,S2])=>`<button data-s="${d}" class="${d===lmS?'on':''}">Hacia ${S2.destino}</button>`).join('');
+  document.querySelectorAll('#lmsent button').forEach(b=>b.onclick=()=>{lmS=b.dataset.s;document.querySelectorAll('#lmsent button').forEach(x=>x.classList.toggle('on',x===b));mapaLinea(id)});
+  mapaLinea(id);
+  const eb=document.getElementById('linbuses'); eb.innerHTML='';
+  eb.append(Plot.plot({width:W('linbuses'),height:180,marginLeft:40,style:{background:'transparent',fontSize:'12px'},x:{label:'hora',tickFormat:d=>d+'h',padding:0.15},y:{grid:true,label:'buses'},
+   marks:[Plot.barY(bh.map((v,h)=>({h,v})),{x:'h',y:'v',fill:C.s1,rx:3,tip:true,title:d=>`${d.h}:00 · ${d.v} buses`}),Plot.ruleY([0])]}));
+  // tiempo de viaje por hora de salida
+  const hm=m=>`${Math.floor(m/60)}:${String(Math.round(m%60)).padStart(2,'0')}`;
+  const hmTxt=m=>m<60?`${Math.round(m)}\u00a0min`:`${Math.floor(m/60)}\u00a0h\u00a0${String(Math.round(m%60)).padStart(2,'0')}\u00a0min`;
+  document.getElementById('linviajenota').textContent=`Cuánto demora un bus en recorrer el trazado (sin los ~3 km de cada extremo, donde entra y sale de terminales), incluidas las detenciones en paraderos, semáforos y congestión. Se mide siguiendo a cada bus entre capturas${D.viaje_periodo?` (${D.viaje_periodo})`:''}.`;
+  // resumen: hora más rápida, viaje típico y hora más lenta (por la mediana de cada hora)
+  const vres=document.getElementById('linviajeres'); vres.innerHTML='';
+  const medPond=H=>{const o=[...H].sort((a,b)=>a.me-b.me),t=d3.sum(o,x=>x.n);let c=0;for(const x of o){c+=x.n;if(c>=t/2)return x.me}};
+  for(const [d,S2] of Object.entries(L.sentidos)){
+   const V=S2.viaje; if(!V) continue;
+   const H=V.horas.map(([h,n,me,p9,pg])=>({h,n,me,p9,pg})).filter(x=>x.me!=null);
+   let ok=H.filter(x=>x.n>=10); if(ok.length<2) ok=H; if(!ok.length) continue;
+   const rap=ok.reduce((a,b)=>b.me<a.me?b:a), len=ok.reduce((a,b)=>b.me>a.me?b:a), tip=V.tipico??medPond(H);
+   const filas=[['Hora más rápida',rap.h,rap.me,0.45],['Viaje típico del día',null,tip,0.75],['Hora más lenta',len.h,len.me,1]];
+   let frase=rap.h!==len.h?`A las ${len.h}&nbsp;h el viaje demora ${hmTxt(len.me-rap.me)} más que a las ${rap.h}&nbsp;h.`:'';
+   if(len.pg!=null&&Math.abs(len.me-len.pg)>=10) frase+=` En la hora más lenta va ${hmTxt(Math.abs(len.me-len.pg))} ${len.me>len.pg?'por sobre':'por debajo de'} lo programado.`;
+   const box=document.createElement('div'); box.className='vres';
+   box.innerHTML=`<p class="vt">Hacia ${S2.destino} <span>· de ${V.desde} a ${V.hasta} (${V.km} km)</span></p>`+
+    filas.map(([l,h,m,o])=>`<div class="vrow"><span class="vl">${l}${h!=null?` · <b>${h}&nbsp;h</b>`:''}</span><span class="vb"><i style="width:${(m/len.me*100).toFixed(1)}%;opacity:${o}"></i></span><span class="vv">${hmTxt(m)}</span></div>`).join('')+
+    (frase?`<p class="note">${frase}</p>`:'');
+   vres.append(box);
+  }
+  if(!vres.children.length) vres.innerHTML='<p class="note">Aún no hay suficientes viajes completos medidos para este recorrido.</p>';
+  // detalle por hora: se dibuja al abrirlo (cerrado no tiene ancho)
+  const det=document.getElementById('linviajedet');
+  const detalle=()=>{
+    const ev=document.getElementById('linviaje'); ev.innerHTML='';
+    for(const [d,S2] of Object.entries(L.sentidos)){
+     const V=S2.viaje; if(!V) continue;
+     const H=V.horas.map(([h,n,me,p9,pg])=>({h,n,me,p9,pg})), Hm=H.filter(x=>x.me!=null);
+     const ymax=d3.max(H,x=>Math.max(x.p9??0,x.pg??0));
+     const box=document.createElement('div');
+     box.innerHTML=`<p style="margin:10px 0 2px;font-weight:600;font-size:13px">Hacia ${S2.destino} <span style="font-weight:400;color:var(--ink2)">· de ${V.desde} a ${V.hasta} (${V.km} km)</span></p>`;
+     box.append(Plot.plot({width:W('linviaje'),height:210,marginLeft:44,style:{background:'transparent',fontSize:'12px'},
+      x:{label:'hora de salida',domain:d3.range(5,24),tickFormat:h=>h+'h',padding:0.2},
+      y:{grid:true,label:'duración (h:mm)',domain:[0,ymax*1.06],ticks:d3.range(0,ymax*1.06,ymax>150?60:30),tickFormat:hm},
+      marks:[Plot.barY(Hm,{x:'h',y:'me',fill:C.s1,rx:3}),
+       Plot.ruleX(Hm,{x:'h',y1:'me',y2:'p9',stroke:C.ink2,strokeWidth:1.5}),
+       Plot.tickY(Hm,{x:'h',y:'p9',stroke:C.ink2,strokeWidth:1.5,insetLeft:7,insetRight:7}),
+       Plot.tickY(H.filter(x=>x.pg!=null),{x:'h',y:'pg',stroke:C.s2,strokeWidth:3}),
+       Plot.ruleY([0]),
+       Plot.tip(H,Plot.pointerX({x:'h',y:x=>x.me??x.pg,lineWidth:40,title:x=>[`Salida entre ${x.h}:00 y ${x.h}:59`,
+         ...(x.me!=null?[`Mitad de los viajes: menos de ${hmTxt(x.me)}`,`Uno de cada diez: más de ${hmTxt(x.p9)}`]:[`Aún pocos viajes medidos (${x.n})`]),
+         ...(x.pg!=null?[`Programado: ${hmTxt(x.pg)}`]:[]),...(x.me!=null?[`${x.n} viajes medidos`]:[])].join('\n')}))]}));
+     ev.append(box);
+    }
+    if(!ev.children.length) ev.innerHTML='<p class="note">Aún no hay suficientes viajes completos medidos para este recorrido.</p>';
+  };
+  det.ontoggle=()=>{if(det.open)detalle()};
+  if(det.open) detalle(); else document.getElementById('linviaje').innerHTML='';
+  // dónde se pierde tiempo en punta: sectores de ~1 km, minutos extra respecto del valle
+  const ep=document.getElementById('linperdida'); ep.innerHTML='';
+  const fmtKm=x=>x.toFixed(1).replace('.',',');
+  // nombre de un sector: "Calle, entre A y B"; si A y B coinciden, "Calle, a la altura de A"
+  const nomSector=(n1,n2)=>{const [c1,x1]=cc(n1),[c2,x2]=cc(n2),c=c1||c2;
+   const t=x1&&x2&&x1===x2?`${c?c+', a':'A'} la altura de ${x1}`:nomTramo(n1,n2);return t.charAt(0).toUpperCase()+t.slice(1)};
+  for(const [d,S2] of Object.entries(L.sentidos)){
+   const PA=S2.paraderos;
+   const T=S2.tramos.map(([k,am,pm,va,,f=0])=>({k,len:PA[k+1][0]-PA[k][0],am,pm,va,f}));
+   const ok=(t,p)=>t[p]!=null&&t.va!=null&&t.len>0;
+   const per=[['am','la punta de la mañana (7–9 h)',1],['pm','la punta de la tarde (18–20 h)',2]]
+    .map(([p,l,b])=>({p,l,b,tot:d3.sum(T.filter(t=>ok(t,p)),t=>t.len*60*(1/t[p]-1/t.va))})).sort((a,b)=>b.tot-a.tot)[0];
+   const sec=[]; let c=null;
+   for(const t of T){
+    if(!c) c={i0:t.k,i1:t.k,len:0,tp:0,tv:0,lok:0,lap:0};
+    c.i1=t.k; c.len+=t.len;
+    if(ok(t,per.p)){c.tp+=t.len/t[per.p]*60;c.tv+=t.len/t.va*60;c.lok+=t.len;if(t.f&(per.b|4))c.lap+=t.len}
+    if(c.len>=1){sec.push(c);c=null}
+   }
+   if(c) sec.push(c);
+   const top=sec.filter(x=>x.lok>=0.5*x.len&&x.tp-x.tv>=0.5)
+    .map(x=>({...x,min:x.tp-x.tv,vp:x.lok/(x.tp/60),vv:x.lok/(x.tv/60),n:nomSector(PA[x.i0][1],PA[x.i1+1][1]),k0:PA[x.i0][0],k1:PA[x.i1+1][0],ap:x.lap>x.lok/2}))
+    .sort((a,b)=>b.min-a.min).slice(0,3);
+   const lenTot=PA.at(-1)[0]-PA[0][0], lenDat=d3.sum(T.filter(t=>ok(t,per.p)),t=>t.len);
+   if(!lenDat) continue;
+   const box=document.createElement('div'); box.className='vres';
+   const tot=Math.round(per.tot), cob=lenDat<0.9*lenTot?` (calculado sobre ${Math.round(lenDat)} de ${Math.round(lenTot)} km con datos)`:'';
+   box.innerHTML=`<p class="vt">Hacia ${S2.destino}</p>`+
+    top.map(x=>`<div class="prow"><span class="pl">${x.n}${x.ap?' <small>(aprox.)</small>':''}<br><small>km ${fmtKm(x.k0)}–${fmtKm(x.k1)} · ${Math.round(x.vp)} km/h en punta, ${Math.round(x.vv)} en valle</small></span><span class="vb"><i style="width:${(x.min/top[0].min*100).toFixed(1)}%"></i></span><span class="vv">+${Math.round(x.min)}\u00a0min</span></div>`).join('')+
+    `<p class="note">${tot>=1?`En ${per.l}, el recorrido completo suma unos ${tot}\u00a0min respecto del valle${cob}.`:`En punta, este sentido no es más lento que en el valle${cob}.`}</p>`;
+   ep.append(box);
+  }
+  if(!ep.children.length) ep.innerHTML='<p class="note">Aún no hay datos suficientes de velocidad para este recorrido.</p>';
+  // velocidad tramo a tramo: se dibuja al abrirlo (cerrado no tiene ancho)
+  const sdet=document.getElementById('linsentdet');
+  const sentDetalle=()=>{
+    const es2=document.getElementById('linsent'); es2.innerHTML='';
+    for(const [d,S2] of Object.entries(L.sentidos)){
+     const PA=S2.paraderos;
+     const P2=S2.tramos.map(([k,am,pm,va,,f=0])=>({km:(PA[k][0]+PA[k+1][0])/2,k0:PA[k][0],k1:PA[k+1][0],n:nomTramo(PA[k][1],PA[k+1][1]),am,pm,va,xa:!!(f&1),xp:!!(f&2),xv:!!(f&4)}));
+     const sm=key=>P2.map((r,i)=>{const w=P2.slice(Math.max(0,i-1),i+2).map(q=>q[key]).filter(x=>x!=null);return r[key]==null?null:med(w)});
+     const sv={va:sm('va'),am:sm('am'),pm:sm('pm')};
+     const lgAll=P2.flatMap((r,i)=>[['Valle',sv.va[i],r.va,r.xv],['Punta mañana',sv.am[i],r.am,r.xa],['Punta tarde',sv.pm[i],r.pm,r.xp]].map(([k,v,raw,ap])=>({km:r.km,n:r.n,k,v:v??NaN,raw,ap})));
+     const lgOwn=lgAll.map(q=>q.ap?{...q,v:NaN}:q);   // trazo firme: solo tramos con datos propios
+     const lg=lgAll.filter(q=>!isNaN(q.v));
+     const box=document.createElement('div'); box.style.marginTop='14px';
+     const worst=P2.map(r=>({...r,a:r.xa?null:r.am,b:r.xp?null:r.pm})).filter(r=>r.a!=null||r.b!=null).map(r=>({...r,p:Math.min(r.a??99,r.b??99)})).sort((a,b)=>a.p-b.p).slice(0,3);
+     box.innerHTML=`<h2 style="font-size:15px">Velocidad por tramo a lo largo del recorrido · hacia ${S2.destino} (${d==='I'?'ida':'regreso'})</h2><p class="note">${lg.length?'Tramos más lentos en punta: '+worst.map(w=>`${w.n} (${w.p.toFixed(1)} km/h)`).join('; '):'Sin datos suficientes para este sentido.'}</p>`;
+     es2.append(box);
+     if(!lg.length) continue;
+     const w=W('linsent');
+     box.append(Plot.plot({width:w,height:230,marginLeft:40,style:{background:'transparent',fontSize:'12px'},x:{label:'km desde el inicio',grid:false},y:{grid:true,label:'km/h',domain:[0,Math.max(30,d3.max(lg,q=>q.v))]},
+      color:{domain:['Valle','Punta mañana','Punta tarde'],range:[C.ctx,C.s1,C.s2]},
+      marks:[Plot.lineY(lgAll,{x:'km',y:'v',z:'k',stroke:'k',strokeWidth:2,strokeOpacity:0.3}),Plot.lineY(lgOwn,{x:'km',y:'v',z:'k',stroke:'k',strokeWidth:2}),
+       Plot.dot(lg.filter(q=>!q.ap),{x:'km',y:'v',fill:'k',r:1.5}),Plot.dot(lg.filter(q=>q.ap),{x:'km',y:'v',stroke:'k',fill:'var(--surface)',strokeWidth:1,r:2}),
+       Plot.tip(lg,Plot.pointer({x:'km',y:'v',title:q=>`Tramo ${q.n}\nkm ${q.km.toFixed(1)} · ${q.k}: ${q.raw.toFixed(1)} km/h${q.ap?' (aproximado, con tramos vecinos)':''}`}))]}));
+    }
+  };
+  sdet.ontoggle=()=>{if(sdet.open)sentDetalle()};
+  if(sdet.open) sentDetalle(); else document.getElementById('linsent').innerHTML='';
+ }
+ document.querySelectorAll('#lmper button').forEach(b=>b.onclick=()=>{lmP=b.dataset.p;document.querySelectorAll('#lmper button').forEach(x=>x.classList.toggle('on',x===b));mapaLinea(cur)});
+ const seqL=['#cde2fb','#86b6ef','#3987e5','#1c5cab','#0d366b'], binL=v=>v>=18?0:v>=14?1:v>=11?2:v>=8?3:4;
+ function mapaLinea(id){
+  const L=LN[id], el=document.getElementById('linmapa'); el.innerHTML='';
+  const SS=L.sentidos[lmS];
+  const P2=SS.paraderos.map(r=>({km:r[0],n:r[1],la:r[2],lo:r[3],stop:true}));
+  // [velocidad, aproximada]; en "peor punta" se prefieren los valores propios
+  const val=r=>{if(lmP==='pk'){const a=r.f&1?null:r.am,p=r.f&2?null:r.pm;
+     if(a!=null||p!=null) return [Math.min(a??99,p??99),false];
+     return (r.am==null&&r.pm==null)?[null,false]:[Math.min(r.am??99,r.pm??99),true]}
+    const b={am:1,pm:2,va:4}[lmP]; return [r[lmP],r[lmP]!=null&&!!(r.f&b)]};
+  const TR=SS.tramos.map(([k,am,pm,va,cs,f=0])=>{const t={k,am,pm,va,cs,f,n:'Tramo: '+nomTramo(P2[k].n,P2[k+1].n)};[t.v,t.ap]=val(t);t.mid=cs[Math.floor(cs.length/2)];return t});
+  const lab={pk:'peor punta',am:'punta mañana',pm:'punta tarde',va:'valle'}[lmP];
+  document.getElementById('lmleg').innerHTML='<div class="legend">Km/h de esta línea en '+lab+': '+['18 o más','14–18','11–14','8–11','menos de 8'].map((l,i)=>`<span><i class="sw" style="background:${seqL[i]}"></i>${l}</span>`).join('')+'<span><i class="sw" style="background:var(--surface);border:1px solid var(--muted)"></i>sin datos</span><span><i class="sw" style="background:'+seqL[2]+';opacity:0.4"></i>tono claro: aproximado (con tramos vecinos)</span></div>';
+  const w=W('linmapa'), h=Math.round(Math.min(w*0.85,640));
+  const lats=P2.map(r=>r.la), lons=P2.map(r=>r.lo), pad=0.012;
+  const box={type:'MultiPoint',coordinates:[[d3.min(lons)-pad,d3.min(lats)-pad],[d3.max(lons)+pad,d3.max(lats)+pad]]};
+  const proj=d3.geoMercator().fitExtent([[10,10],[w-10,h-10]],box);
+  const [x0,y0]=proj.invert([0,h]), [x1,y1]=proj.invert([w,0]);
+  const vis=RED;
+  const tp=TR.flatMap(t=>t.cs.map(([lo,la])=>({lo,la,k:t.k,v:t.v,ap:t.ap})));
+  const plot=Plot.plot({width:w,height:h,style:{background:'transparent',fontSize:'11px'},projection:{type:()=>proj,clip:false},
+   marks:[Plot.geo(S.comunas,{stroke:C.muted,strokeWidth:0.6,strokeOpacity:0.6,fill:'none'}),
+    Plot.text(S.comunas.features,Plot.centroid({text:d=>d.properties.n,fill:C.muted,fontSize:10,stroke:'var(--surface)',strokeWidth:3,paintOrder:'stroke'})),
+    Plot.dot(vis,{x:'lo',y:'la',r:1.8,fill:C.ctx,fillOpacity:0.7}),
+    Plot.line(tp,{x:'lo',y:'la',z:'k',stroke:C.muted,strokeWidth:7,strokeLinecap:'round'}),
+    Plot.line(tp,{x:'lo',y:'la',z:'k',stroke:C.surf,strokeWidth:5,strokeLinecap:'round'}),   // fondo: los tramos aproximados se ven en tono claro
+    Plot.line(tp,{x:'lo',y:'la',z:'k',stroke:d=>d.v==null?C.surf:seqL[binL(d.v)],strokeOpacity:d=>d.ap?0.4:1,strokeWidth:5,strokeLinecap:'round'}),
+    Plot.dot(P2,{x:'lo',y:'la',r:1.6,fill:C.ink2}),
+    Plot.text([P2[0],P2.at(-1)],{x:'lo',y:'la',text:(d,i)=>i?'Fin':'Inicio',dy:-12,fontWeight:600,fill:'currentColor',stroke:'var(--surface)',strokeWidth:3,paintOrder:'stroke'})]});
+  el.append(plot);
+  const panel=document.createElement('div'); panel.id='lmpanel'; panel.hidden=true; el.append(panel);
+  const svg=plot.tagName==='svg'?plot:plot.querySelector('svg');
+  const NS='http://www.w3.org/2000/svg', zg=document.createElementNS(NS,'g'); zg.setAttribute('class','zoomable');
+  [...svg.childNodes].filter(n=>n.nodeName!=='style').forEach(n=>zg.appendChild(n)); svg.appendChild(zg);
+  const circ=[...zg.querySelectorAll('circle')].map(c=>[c,+c.getAttribute('r')||+c.parentNode.getAttribute('r')||2]);
+  const txt=[...zg.querySelectorAll('text')].map(t=>[t,parseFloat(getComputedStyle(t).fontSize)||11]);
+  let tf=d3.zoomIdentity, raf=0;
+  // Capa para mostrar los trazados de los recorridos de un paradero (al pasar el cursor)
+  // y destacar uno de ellos (al pasar el cursor sobre su botón en el panel)
+  // ovB: trazados tenues, bajo el recorrido actual y con opacidad de grupo (no se oscurecen al superponerse);
+  // ovA: el recorrido destacado y el anillo del paradero, encima de todo
+  const ovB=document.createElementNS(NS,'g'), ovA=document.createElementNS(NS,'g');
+  [ovB,ovA].forEach(g=>g.setAttribute('pointer-events','none'));
+  zg.insertBefore(ovB,zg.querySelector('g[aria-label="line"]')); zg.appendChild(ovA);
+  const trazos=new Map(), lineaPx=d3.line();
+  // puntos cada ~paso px (sin zoom) a lo largo de una polilínea proyectada
+  const densificar=(q,paso,extra)=>{const o=[];if(q.length===1)o.push({x:q[0][0],y:q[0][1],...extra});
+    for(let i=1;i<q.length;i++){const [ax,ay]=q[i-1],[bx,by]=q[i],n=Math.max(1,Math.ceil(Math.hypot(bx-ax,by-ay)/paso));
+     for(let j=i>1?1:0;j<=n;j++)o.push({x:ax+(bx-ax)*j/n,y:ay+(by-ay)*j/n,...extra})}return o};
+  function trazo(r,s){const k=r+'|'+s;if(!trazos.has(k)){const pts=[];
+    LN[r].sentidos[s].tramos.forEach(t=>t[4].forEach(c=>{const q=proj(c),u=pts.at(-1);if(!u||u[0]!==q[0]||u[1]!==q[1])pts.push(q)}));
+    trazos.set(k,pts.length>1?{d:lineaPx(pts),obs:densificar(pts,6)}:null)}return trazos.get(k)}
+  // sentidos del recorrido que pasan por ese paradero (si no se encuentra, ambos)
+  const sentidosEn=(r,p)=>{const ss=Object.entries(LN[r].sentidos).filter(([,S3])=>S3.paraderos.some(q=>Math.abs(q[2]-p.la)<1e-5&&Math.abs(q[3]-p.lo)<1e-5)).map(([s])=>s);return ss.length?ss:Object.keys(LN[r].sentidos)};
+  let ovP=null, ovRs=[], obsOv=[];
+  function dibujarOv(p,rs,dest){
+   ovB.replaceChildren(); ovA.replaceChildren(); ovP=p; ovRs=rs; ovB.style.opacity=dest?0.18:0.5; obsOv=[];
+   for(const r of rs){ if(!LN[r]||(r===id&&r!==dest)) continue;
+    for(const s of sentidosEn(r,p)){ const tz=trazo(r,s); if(!tz) continue; const d=tz.d; obsOv.push(tz.obs);
+     const pa=document.createElementNS(NS,'path'), on=r===dest;
+     pa.setAttribute('d',d); pa.setAttribute('vector-effect','non-scaling-stroke');
+     Object.assign(pa.style,{fill:'none',strokeLinejoin:'round',strokeLinecap:'round',stroke:on?C.s2:C.ink2,strokeWidth:on?'4px':'2px',strokeOpacity:on?0.95:1});
+     (on?ovA:ovB).appendChild(pa);
+    }}
+   const [cx,cy]=proj([p.lo,p.la]), c=document.createElementNS(NS,'circle');
+   c.setAttribute('cx',cx); c.setAttribute('cy',cy); c.setAttribute('r',6/tf.k); c.setAttribute('vector-effect','non-scaling-stroke');
+   Object.assign(c.style,{fill:'none',stroke:'currentColor',strokeWidth:'1.5px'}); ovA.appendChild(c);
+  }
+  const limpiarOv=()=>{ovB.replaceChildren();ovA.replaceChildren();ovP=null;ovRs=[];obsOv=[]};
+  const ocultar=()=>{panel.hidden=true;pAct=null;limpiarOv()};
+
+  // Barra de lectura: velocidad del tramo más cercano al cursor, con su contorno en el mapa
+  const barra=document.getElementById('lmbarra'), hintB='Pasa el cursor sobre el recorrido para ver la velocidad de cada tramo.';
+  barra.textContent=hintB;
+  const densT=TR.flatMap(t=>densificar(t.cs.map(c=>proj(c)),3,{t}));   // también sirve para ubicar el panel
+  const qD=d3.quadtree(densT,d=>d.x,d=>d.y);
+  const ovT=document.createElementNS(NS,'g'); ovT.setAttribute('pointer-events','none');
+  zg.insertBefore(ovT,zg.querySelector('g[aria-label="line"]'));
+  let tAct=null;
+  function barraTramo(t){
+   if(t===tAct) return; tAct=t; ovT.replaceChildren();
+   if(!t){barra.textContent=hintB;return}
+   const pa=document.createElementNS(NS,'path'); pa.setAttribute('d',lineaPx(t.cs.map(c=>proj(c)))); pa.setAttribute('vector-effect','non-scaling-stroke');
+   Object.assign(pa.style,{fill:'none',stroke:'currentColor',strokeOpacity:0.75,strokeWidth:'11px',strokeLinecap:'round',strokeLinejoin:'round'}); ovT.appendChild(pa);
+   const fuerte=k=>lmP===k||(lmP==='pk'&&k!=='va');
+   barra.innerHTML=`<span><b>${t.n.replace(/^Tramo: /,'Tramo ')}</b> · `+[['am','Punta mañana',1],['pm','Punta tarde',2],['va','Valle',4]]
+    .map(([k,l,b])=>`<span class="${fuerte(k)?'on':''}">${l} ${t[k]==null?'—':t[k].toFixed(1)+' km/h'+((t.f&b)?' (aprox.)':'')}</span>`).join(' · ')+'</span>';
+  }
+  const tramoEn=(mx,my)=>{const d=qD.find(mx,my,16/tf.k);return d?d.t:null};
+
+  // Ubicación del panel: entre varias posiciones alrededor del paradero, la que tapa
+  // menos puntos de los trazados visibles (recorrido actual y recorridos del paradero)
+  function ubicar(p,pw,ph){
+   const [qx,qy]=tf.apply([p.px,p.py]), obs=[densT,...obsOv];
+   const cand=[];
+   for(const g of [12,56]) cand.push([qx+g,qy-ph-g],[qx+g,qy+g],[qx-pw-g,qy-ph-g],[qx-pw-g,qy+g],[qx-pw/2,qy-ph-g],[qx-pw/2,qy+g],[qx+g,qy-ph/2],[qx-pw-g,qy-ph/2]);
+   let mejor=null;
+   cand.forEach(([l,t],i)=>{
+    l=Math.min(w-pw-4,Math.max(4,l)); t=Math.min(h-ph-4,Math.max(4,t));
+    const L=l-6,T=t-6,R=l+pw+6,B=t+ph+6; let n=0;
+    if(qx>=L-6&&qx<=R+6&&qy>=T-6&&qy<=B+6) n+=1e4;   // nunca tapar el paradero
+    for(const arr of obs) for(const o of arr){const sx_=o.x*tf.k+tf.x, sy_=o.y*tf.k+tf.y; if(sx_>=L&&sx_<=R&&sy_>=T&&sy_<=B) n++}
+    const sc=n+i*0.01;
+    if(!mejor||sc<mejor[0]) mejor=[sc,l,t];
+   });
+   panel.style.left=mejor[1]+'px'; panel.style.top=mejor[2]+'px';
+  }
+  const ajustar=()=>{raf=0;const k=tf.k;circ.forEach(([c,r])=>c.setAttribute('r',r/Math.sqrt(k)));txt.forEach(([t,f])=>t.style.fontSize=(f/k)+'px');zg.querySelectorAll('text').forEach(t=>t.setAttribute('stroke-width',3/k))};
+  const zoom=d3.zoom().scaleExtent([0.25,16]).filter(e=>e.type==='wheel'?(e.ctrlKey||e.metaKey):!e.button)
+   .on('start',()=>{el.style.cursor='grabbing'}).on('end',()=>{el.style.cursor='grab'})
+   .on('zoom',e=>{tf=e.transform;zg.setAttribute('transform',tf);ocultar();pinned=false;if(!raf)raf=requestAnimationFrame(ajustar)});
+  d3.select(svg).call(zoom).on('dblclick.zoom',null);
+  const sel3=d3.select(svg).transition().duration(450);
+  document.getElementById('lmzin').onclick=()=>d3.select(svg).transition().duration(300).call(zoom.scaleBy,1.6,[w/2,h/2]);
+  document.getElementById('lmzout').onclick=()=>d3.select(svg).transition().duration(300).call(zoom.scaleBy,1/1.6,[w/2,h/2]);
+  document.getElementById('lmzrec').onclick=()=>d3.select(svg).transition().duration(450).call(zoom.transform,d3.zoomIdentity);
+  document.getElementById('lmzred').onclick=()=>{const xy=RED.map(r=>proj([r.lo,r.la]));const [ax,bx]=d3.extent(xy,d=>d[0]),[ay,by]=d3.extent(xy,d=>d[1]);const k=Math.min(w/(bx-ax),h/(by-ay))*0.95;
+   d3.select(svg).transition().duration(600).call(zoom.transform,d3.zoomIdentity.translate(w/2,h/2).scale(k).translate(-(ax+bx)/2,-(ay+by)/2))};
+  const pts=[...P2.map(r=>({...r,mine:true})),...vis.map(r=>({...r,mine:false}))].map(r=>{const [px,py]=proj([r.lo,r.la]);return {...r,px,py}});
+  const qS=d3.quadtree(pts.filter(d=>d.mine),d=>d.px,d=>d.py), qtR=d3.quadtree(pts.filter(d=>!d.mine),d=>d.px,d=>d.py);
+  const buscar=(x,y)=>{const k=tf.k;return qS.find(x,y,6/k)||qtR.find(x,y,8/k)};
+  let pinned=false, pAct=null;
+  const recorridos=p=>{const red=RED.find(r=>Math.abs(r.la-p.la)<1e-5&&Math.abs(r.lo-p.lo)<1e-5);return red?red.rs:[id]};
+  function contenido(p){
+   const rs=recorridos(p);
+   let t=`<div class="t">${p.n}</div>`;
+   t+=`<div style="margin-top:4px;color:var(--ink2)">${rs.length} recorrido${rs.length>1?'s':''} — ${pinned?'elige uno:':'haz clic para elegir'}</div><div class="r">`+rs.map(r=>`<button data-r="${r}" class="${r===id?'cur':''}" title="${LN[r]?LN[r].nombre:''}">${r}</button>`).join('')+'</div>';
+   return t;
+  }
+  function mostrar(p){pAct=p;panel.innerHTML=contenido(p);panel.hidden=false;
+   if(ovP!==p||!ovRs.length) dibujarOv(p,recorridos(p),null);
+   ubicar(p,panel.offsetWidth,panel.offsetHeight);
+   panel.querySelectorAll('button[data-r]').forEach(b=>{
+    const r=b.dataset.r, on=()=>{if(ovP)dibujarOv(ovP,ovRs,r)}, off=()=>{if(ovP)dibujarOv(ovP,ovRs,null)};
+    b.onmouseenter=on; b.onfocus=on; b.onmouseleave=off; b.onblur=off;
+    b.onclick=()=>{if(LN[r]){elegir(r);document.getElementById('linea-card').scrollIntoView({behavior:'smooth'})}}});}
+  svg.addEventListener('pointermove',e=>{const r=svg.getBoundingClientRect(),sx=w/r.width;const [mx,my]=tf.invert([(e.clientX-r.left)*sx,(e.clientY-r.top)*sx]);
+   barraTramo(tramoEn(mx,my)); if(pinned)return;
+   const p=buscar(mx,my); if(p){if(p!==pAct||panel.hidden)mostrar(p)} else ocultar()});
+  svg.addEventListener('pointerleave',e=>{barraTramo(null);if(!pinned&&!panel.contains(e.relatedTarget))ocultar()});
+  svg.addEventListener('click',e=>{const r=svg.getBoundingClientRect(),sx=w/r.width;const [mx,my]=tf.invert([(e.clientX-r.left)*sx,(e.clientY-r.top)*sx]);barraTramo(tramoEn(mx,my));const p=buscar(mx,my);if(p){pinned=true;mostrar(p)}else{pinned=false;ocultar()}});
+ }
+ const inp=document.getElementById('lin'), ul=document.getElementById('linlist');
+ const norm=t=>t.normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase();
+ let opts=[], act=-1, cur='503';
+ function elegir(id){if(!LN[id])return; cur=id; inp.value=`${id} · ${LN[id].nombre}`; cerrar(); show(id)}
+ function cerrar(){ul.hidden=true;inp.setAttribute('aria-expanded','false');act=-1}
+ function abrir(q){
+  const nq=norm(q.trim());
+  opts=nq?ids.filter(i=>norm(i).startsWith(nq)).concat(ids.filter(i=>!norm(i).startsWith(nq)&&norm(i+' '+LN[i].nombre+' '+(LN[i].operador||'')).includes(nq))):ids;
+  ul.innerHTML=opts.length?opts.slice(0,400).map((i,k)=>`<li role="option" data-id="${i}" aria-selected="${k===act}"><b>${i}</b><span>${LN[i].nombre}</span></li>`).join(''):'<li style="cursor:default;color:var(--ink2)">Sin coincidencias</li>';
+  ul.hidden=false;inp.setAttribute('aria-expanded','true');
+ }
+ function marcar(){[...ul.children].forEach((li,k)=>li.setAttribute('aria-selected',k===act));const li=ul.children[act];if(li)li.scrollIntoView({block:'nearest'})}
+ inp.addEventListener('focus',()=>{inp.select();abrir('')});
+ inp.addEventListener('input',()=>{act=0;abrir(inp.value);marcar()});
+ inp.addEventListener('keydown',e=>{
+  if(ul.hidden&&(e.key==='ArrowDown'||e.key==='Enter')){abrir('');}
+  if(e.key==='ArrowDown'){e.preventDefault();act=Math.min(opts.length-1,act+1);marcar()}
+  else if(e.key==='ArrowUp'){e.preventDefault();act=Math.max(0,act-1);marcar()}
+  else if(e.key==='Enter'){e.preventDefault();const id=opts[Math.max(0,act)];if(id)elegir(id);inp.blur()}
+  else if(e.key==='Escape'){elegir(cur);inp.blur()}
+ });
+ ul.addEventListener('mousedown',e=>{const li=e.target.closest('li[data-id]');if(li){e.preventDefault();elegir(li.dataset.id);inp.blur()}});
+ inp.addEventListener('blur',()=>setTimeout(()=>{if(!ul.hidden){cerrar();inp.value=`${cur} · ${LN[cur].nombre}`}},120));
+ const h0=decodeURIComponent((location.hash.match(/^#linea-(.+)$/)||[])[1]||'');
+ elegir(LN[h0]?h0:(LN['503']?'503':ids[0]));
+});
+}).catch(e=>{document.getElementById('sub').textContent='No se pudieron cargar los datos: '+(e.message||e)});
+</script>
+</body>
+</html>
